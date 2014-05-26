@@ -9,7 +9,7 @@
 import logging, os, sys
 from optparse import OptionParser, OptionGroup
 
-from mbutil import mbtiles_to_disk, disk_to_mbtiles, mbtiles_create, merge_mbtiles, optimize_database, check_mbtiles, test_mbtiles, fill_mbtiles, execute_commands_on_mbtiles, convert_string, mbtiles_tilelist, expire_mbtiles, expire_tiles_bbox, update_mbtiles
+from mbutil import mbtiles_to_disk, disk_to_mbtiles, mbtiles_create, merge_mbtiles, optimize_database, check_mbtiles, clean_mbtiles, test_mbtiles, fill_mbtiles, execute_commands_on_mbtiles, convert_string, mbtiles_tilelist, expire_mbtiles, expire_tiles_bbox, update_mbtiles
 
 if __name__ == '__main__':
 
@@ -42,6 +42,9 @@ if __name__ == '__main__':
 
     Check if a mbtiles file contains all tiles at a specific zoom level:
     $ mb-util --check --zoom=7 world.mbtiles
+
+    Clean a database (remove unused images, etc.):
+    $ mb-util --clean world.mbtiles
 
     Test tiles with a command, print tile coordinates for non-zero return values
     $ mb-util --test --execute "COMMAND ARGUMENTS" world.mbtiles
@@ -92,6 +95,11 @@ if __name__ == '__main__':
     group.add_option("--check",
         dest='check', action="store_true",
         help='''Check the database for missing tiles.''',
+        default=False)
+
+    group.add_option("--clean",
+        dest='clean', action="store_true",
+        help='''Remove unused images from the database.''',
         default=False)
 
     group.add_option("--test",
@@ -265,6 +273,11 @@ if __name__ == '__main__':
         # Check the mbtiles db?
         if options.check:
             result = check_mbtiles(args[0], **options.__dict__)
+            sys.exit(0) if result else sys.exit(1)
+
+        # Clean the mbtiles db?
+        if options.clean:
+            result = clean_mbtiles(args[0], **options.__dict__)
             sys.exit(0) if result else sys.exit(1)
 
         # Execute commands on the tiles in the mbtiles db?
