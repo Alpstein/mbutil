@@ -48,6 +48,7 @@ def process_tiles(pool, tiles_to_process):
 
 def test_mbtiles(mbtiles_file, **kwargs):
 
+    scale       = kwargs.get('tile_scale', 1)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)
@@ -101,11 +102,12 @@ def test_mbtiles(mbtiles_file, **kwargs):
     chunk = 1000
     tiles_to_process = []
 
-    for t in con.tiles(min_zoom, max_zoom, min_timestamp, max_timestamp):
+    for t in con.tiles(min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
         tile_z = t[0]
         tile_x = t[1]
         tile_y = t[2]
-        tile_data = str(t[3])
+        tile_scale = t[3]
+        tile_data = str(t[4])
 
         if flip_tile_y:
             tile_y = flip_y(tile_z, tile_y)

@@ -9,6 +9,7 @@ def check_mbtiles(mbtiles_file, **kwargs):
 
     result = True
 
+    scale       = kwargs.get('tile_scale', 1)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)
@@ -37,7 +38,7 @@ def check_mbtiles(mbtiles_file, **kwargs):
 
     logger.debug("Loading zoom levels")
 
-    zoom_levels = con.zoom_levels()
+    zoom_levels = con.zoom_levels(scale)
     missing_tiles = []
 
     for tile_z in zoom_levels:
@@ -46,7 +47,7 @@ def check_mbtiles(mbtiles_file, **kwargs):
 
         logger.debug("Starting zoom level %d" % (tile_z))
 
-        t = con.bounding_box_for_zoom_level(tile_z)
+        t = con.bounding_box_for_zoom_level(tile_z, scale)
 
         minX, maxX, minY, maxY = t[0], t[1], t[2], t[3]
 
@@ -56,7 +57,7 @@ def check_mbtiles(mbtiles_file, **kwargs):
             logger.debug("   - Row: %d (%.1f%%)" %
                 (tile_y, (float(tile_y - minY) / float(maxY - minY)) * 100.0) if minY != maxY else 100.0)
 
-            mbtiles_columns = con.columns_for_zoom_level_and_row(tile_z, tile_y)
+            mbtiles_columns = con.columns_for_zoom_level_and_row(tile_z, tile_y, scale)
 
             for tile_x in range(minX, maxX+1):
                 if tile_x not in mbtiles_columns:
@@ -73,5 +74,10 @@ def check_mbtiles(mbtiles_file, **kwargs):
 
 
     con.close()
+
+    if result:
+        logger.info("Check succeeded")
+    else:
+        logger.info("Check failed")
 
     return result

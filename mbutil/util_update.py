@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 def update_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
 
+    scale    = kwargs.get('tile_scale', 1)
     zoom     = kwargs.get('zoom', -1)
     min_zoom = kwargs.get('min_zoom', 0)
     max_zoom = kwargs.get('max_zoom', 18)
@@ -102,8 +103,9 @@ def update_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
         tile_z = t[0]
         tile_x = t[1]
         tile_y = t[2]
-        tile_data = str(t[3])
-        tile_id = t[4]
+        tile_scale = t[3]
+        tile_data = str(t[4])
+        tile_id = t[5]
 
         if flip_tile_y:
             tile_y = flip_y(tile_z, tile_y)
@@ -115,7 +117,7 @@ def update_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
             tmp_images_list.append( (tile_id, tile_data) )
             known_tile_ids.add(tile_id)
 
-        tmp_row_list.append( (tile_z, tile_x, tile_y, tile_id, int(time.time())) )
+        tmp_row_list.append( (tile_z, tile_x, tile_y, tile_scale, tile_id, int(time.time())) )
 
         count = count + 1
         if (count % 100) == 0:

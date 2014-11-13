@@ -58,6 +58,7 @@ def execute_commands_on_mbtiles(mbtiles_file, **kwargs):
     journal_mode    = kwargs.get('journal_mode', 'wal')
     synchronous_off = kwargs.get('synchronous_off', False)
 
+    scale        = kwargs.get('tile_scale', 1)
     zoom         = kwargs.get('zoom', -1)
     min_zoom     = kwargs.get('min_zoom', 0)
     max_zoom     = kwargs.get('max_zoom', 18)
@@ -108,7 +109,7 @@ def execute_commands_on_mbtiles(mbtiles_file, **kwargs):
     chunk = 1000
     start_time = time.time()
 
-    total_tiles = con.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp)
+    total_tiles = con.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
 
     logger.debug("%d tiles to process" % (total_tiles))
     if print_progress:
@@ -135,12 +136,13 @@ def execute_commands_on_mbtiles(mbtiles_file, **kwargs):
     tiles_to_process = []
     processed_tile_ids = set()
 
-    for t in con.tiles_with_tile_id(min_zoom, max_zoom, min_timestamp, max_timestamp):
+    for t in con.tiles_with_tile_id(min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
         tile_z = t[0]
         tile_x = t[1]
         tile_y = t[2]
-        tile_data = str(t[3])
-        tile_id = t[4]
+        tile_scale = t[3]
+        tile_data = str(t[4])
+        tile_id = t[5]
         # logging.debug("Working on tile (%d, %d, %d)" % (tile_z, tile_x, tile_y))
 
         if tile_id in processed_tile_ids:

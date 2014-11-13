@@ -14,6 +14,7 @@ def disk_to_mbtiles(directory_path, mbtiles_file, **kwargs):
     print_progress  = kwargs.get('progress', False)
     flip_tile_y     = kwargs.get('flip_y', False)
 
+    scale       = kwargs.get('tile_scale', 1)
     zoom     = kwargs.get('zoom', -1)
     min_zoom = kwargs.get('min_zoom', 0)
     max_zoom = kwargs.get('max_zoom', 18)
@@ -107,7 +108,7 @@ def disk_to_mbtiles(directory_path, mbtiles_file, **kwargs):
                             tile_id = m.hexdigest()
 
                             con.insert_tile_to_images(tile_id, tile_data)
-                            con.insert_tile_to_map(tile_z, tile_x, tile_y, tile_id)
+                            con.insert_tile_to_map(tile_z, tile_x, tile_y, scale, tile_id)
 
                             count = count + 1
                             if (count % 100) == 0:

@@ -7,6 +7,7 @@ logger = logging.getLogger(__name__)
 
 def fill_mbtiles(mbtiles_file, image_filename, **kwargs):
 
+    scale       = kwargs.get('tile_scale', 1)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)
@@ -93,7 +94,7 @@ def fill_mbtiles(mbtiles_file, image_filename, **kwargs):
                     tile_y = flip_y(tile_z, tile_y)
 
                 # z, x, y
-                con.insert_tile_to_map(tile_z, tile_x, tile_y, tile_id, False) # Don't overwrite existing tiles
+                con.insert_tile_to_map(tile_z, tile_x, tile_y, scale, tile_id, False) # Don't overwrite existing tiles
 
                 count = count + 1
                 if (count % 100) == 0:

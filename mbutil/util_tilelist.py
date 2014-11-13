@@ -11,6 +11,7 @@ def mbtiles_tilelist(mbtiles_file, **kwargs):
     flip_tile_y = kwargs.get('flip_y', False)
     as_bboxes   = kwargs.get('as_bboxes', False)
 
+    scale     = kwargs.get('tile_scale', 1)
     zoom      = kwargs.get('zoom', -1)
     min_zoom  = kwargs.get('min_zoom', 0)
     max_zoom  = kwargs.get('max_zoom', 18)
@@ -39,7 +40,7 @@ def mbtiles_tilelist(mbtiles_file, **kwargs):
     for tile_z in range(min_zoom, max_zoom+1):
         logger.debug("Starting zoom level %d" % (tile_z))
 
-        for t in con.columns_and_rows_for_zoom_level(tile_z):
+        for t in con.columns_and_rows_for_zoom_level(tile_z, scale):
             tile_x, tile_y = int(t[0]), int(t[1])
 
             if as_bboxes:

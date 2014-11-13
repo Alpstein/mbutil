@@ -7,6 +7,7 @@ from util_convert import parse_and_convert_tile_bbox, parse_bbox, tiles_for_bbox
 
 def expire_mbtiles(mbtiles_file, **kwargs):
 
+    scale       = kwargs.get('tile_scale', 1)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)
@@ -33,7 +34,7 @@ def expire_mbtiles(mbtiles_file, **kwargs):
 
     logger.debug("Expiring tiles older than %s" % (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(expire_timestamp))))
 
-    con.expire_tiles(min_zoom, max_zoom, 0, expire_timestamp)
+    con.expire_tiles(min_zoom, max_zoom, 0, expire_timestamp, scale)
 
     con.optimize_database(kwargs.get('skip_analyze', False), kwargs.get('skip_vacuum', False))
     con.close()
@@ -41,6 +42,7 @@ def expire_mbtiles(mbtiles_file, **kwargs):
 
 def expire_tiles_bbox(mbtiles_file, **kwargs):
 
+    scale       = kwargs.get('tile_scale', 1)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)
@@ -84,7 +86,7 @@ def expire_tiles_bbox(mbtiles_file, **kwargs):
             if print_progress:
                 sys.stdout.write("\rExpiring tile %d/%d/%d" % (tile_z, tile_x, tile_y))
 
-            con.expire_tile(tile_z, tile_x, tile_y)
+            con.expire_tile(tile_z, tile_x, tile_y, scale)
 
 
     if print_progress:

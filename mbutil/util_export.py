@@ -13,6 +13,7 @@ def mbtiles_to_disk(mbtiles_file, directory_path, **kwargs):
     journal_mode    = kwargs.get('journal_mode', 'wal')
     synchronous_off = kwargs.get('synchronous_off', False)
 
+    scale    = kwargs.get('tile_scale', 1)
     zoom     = kwargs.get('zoom', -1)
     min_zoom = kwargs.get('min_zoom', 0)
     max_zoom = kwargs.get('max_zoom', 18)
@@ -64,7 +65,7 @@ def mbtiles_to_disk(mbtiles_file, directory_path, **kwargs):
         sys.exit(1)
 
 
-    total_tiles = con.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp)
+    total_tiles = con.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
 
     logger.debug("%d tiles to export" % (total_tiles))
     if print_progress:
@@ -73,11 +74,12 @@ def mbtiles_to_disk(mbtiles_file, directory_path, **kwargs):
         sys.stdout.flush()
 
 
-    for t in con.tiles(min_zoom, max_zoom, min_timestamp, max_timestamp):
+    for t in con.tiles(min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
         tile_z = t[0]
         tile_x = t[1]
         tile_y = t[2]
-        tile_data = str(t[3])
+        tile_scale = t[3]
+        tile_data = str(t[4])
 
         # Execute commands
         if kwargs.get('command_list'):
@@ -118,7 +120,7 @@ def mbtiles_to_disk(mbtiles_file, directory_path, **kwargs):
     if delete_after_export:
         logger.debug("WARNING: Removing exported tiles from %s" % (mbtiles_file))
 
-        con.delete_tiles(min_zoom, max_zoom, min_timestamp, max_timestamp)
+        con.delete_tiles(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
         con.optimize_database(kwargs.get('skip_analyze', False), kwargs.get('skip_vacuum', False))
 
 

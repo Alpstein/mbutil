@@ -133,6 +133,10 @@ if __name__ == '__main__':
         action="append", default=None,
         help='''Commands to execute for each tile image. %s will be replaced with the file name. This argument may be repeated several times and can be used together with --import/--export/--merge/--compact/--process.''')
 
+    group.add_option("--scale", dest="tile_scale",
+        help='''The scale factor for the tiles (1 or 2)''',
+        type="int", default=1)
+
     group.add_option('--flip-y', dest='flip_y',
         help='''Flip the y tile coordinate during --export/--import/--merge/--update/--convert/--tilelist.''',
         action="store_true", default=False)
@@ -268,6 +272,9 @@ if __name__ == '__main__':
     if options.tmp_dir:
         logger.debug("Using tmp dir: %s" % (options.tmp_dir, ))
 
+    if options.tile_scale not in [1, 2]:
+        sys.stderr.write('Tile scale must be 1 or 2.\n')
+        sys.exit(1)
 
     if len(args) == 1:
         # Check the mbtiles db?
