@@ -825,7 +825,7 @@ class MBTilesPostgres(MBTilesDatabase):
 
         if len(inner_sql) > 0:
             sql += " (%s) AND " % (inner_sql,)
-        sql += " (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id) "
+        sql += " (map.tile_id IS NOT NULL) AND (images.tile_id = map.tile_id) "
 
         logger.debug(sql)
 
@@ -989,7 +989,7 @@ class MBTilesPostgres(MBTilesDatabase):
 
     def insert_tile_to_map(self, zoom_level, tile_column, tile_row, tile_scale, tile_id, replace_existing=True):
         if replace_existing:
-            self.cur.execute("""SELECT update_map_proc(%s, %s, %s, %s, %s::varchar, %s)""",
+            self.cur.execute("""SELECT update_map_proc(%s, %s, %s, %s::smallint, %s::varchar, %s)""",
                 (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
         else:
             try:
