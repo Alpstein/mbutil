@@ -13,7 +13,7 @@ def mbtiles_to_disk(mbtiles_file, directory_path, **kwargs):
     journal_mode    = kwargs.get('journal_mode', 'wal')
     synchronous_off = kwargs.get('synchronous_off', False)
 
-    scale    = kwargs.get('tile_scale', 1)
+    scale    = kwargs.get('tile_scale', None)
     zoom     = kwargs.get('zoom', -1)
     min_zoom = kwargs.get('min_zoom', 0)
     max_zoom = kwargs.get('max_zoom', 18)

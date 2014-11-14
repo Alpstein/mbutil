@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 def fill_mbtiles(mbtiles_file, image_filename, **kwargs):
 
-    scale       = kwargs.get('tile_scale', 1)
+    scale       = kwargs.get('tile_scale', None)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)

@@ -268,45 +268,47 @@ class MBTilesSQLite(MBTilesDatabase):
 
 
     def zoom_levels(self, scale):
-        return [int(x[0]) for x in self.cur.execute("SELECT distinct(zoom_level) FROM tiles WHERE tile_scale=?", (scale,)).fetchall()]
+        sql = "SELECT distinct(zoom_level) FROM tiles "
+
+        if scale:
+            sql += " WHERE tile_scale=%d " % (scale,)
+
+        return [int(x[0]) for x in self.cur.execute(sql).fetchall()]
 
 
     def tiles_count(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
-        total_tiles = 0
+        sql = "SELECT count(zoom_level) FROM map WHERE "
+
+        if min_zoom > 0:
+            sql += " zoom_level>=%d AND " % (min_zoom,)
+        if max_zoom < 18:
+            sql += " zoom_level<=%d AND " % (max_zoom,)
+
+        if self.has_scale() and scale is not None:
+            sql += " tile_scale=%d AND " % (scale,)
 
         if self.is_compacted():
-            if self.has_scale():
-                if min_timestamp > 0 and max_timestamp > 0:
-                    total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>? AND updated_at<? AND tile_id IS NOT NULL""",
-                        (min_zoom, max_zoom, scale, min_timestamp, max_timestamp)).fetchone()[0]
-                elif min_timestamp > 0:
-                    total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>? AND tile_id IS NOT NULL""",
-                        (min_zoom, max_zoom, scale, min_timestamp)).fetchone()[0]
-                elif max_timestamp > 0:
-                    total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at<? AND tile_id IS NOT NULL""",
-                        (min_zoom, max_zoom, scale, max_timestamp)).fetchone()[0]
-                else:
-                    total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND tile_id IS NOT NULL""",
-                        (min_zoom, max_zoom, scale)).fetchone()[0]
-            else:
-                total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_id IS NOT NULL""",
-                    (min_zoom, max_zoom)).fetchone()[0]
-        else:
-            if self.has_scale():
-                total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?""",
-                    (min_zoom, max_zoom, scale)).fetchone()[0]
-            else:
-                total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=?""",
-                    (min_zoom, max_zoom)).fetchone()[0]
+            if min_timestamp > 0:
+                sql += " updated_at>%d AND " % (min_timestamp,)
+            if max_timestamp > 0:
+                sql += " updated_at<%d AND " % (max_timestamp,)
 
-        return total_tiles
+            sql += " tile_id IS NOT NULL"
+
+        logger.debug(sql)
+
+        return self.cur.execute(sql).fetchone()[0]
 
 
     def columns_and_rows_for_zoom_level(self, zoom_level, scale):
         tiles_cur = self.con.cursor()
 
-        tiles = tiles_cur.execute("""SELECT tile_column, tile_row FROM map WHERE zoom_level = ? AND tile_scale = ?""",
-            [zoom_level, scale])
+        sql = "SELECT tile_column, tile_row FROM map WHERE zoom_level=%d " % (zoom_level,)
+
+        if self.has_scale() and scale is not None:
+            sql += " AND tile_scale=%d " % (scale,)
+
+        tiles = tiles_cur.execute(sql)
 
         t = tiles.fetchone()
         while t:
@@ -317,8 +319,12 @@ class MBTilesSQLite(MBTilesDatabase):
 
 
     def columns_for_zoom_level_and_row(self, zoom_level, row, scale):
-        return set([int(x[0]) for x in self.cur.execute("""SELECT tile_column FROM tiles WHERE zoom_level=? AND tile_row=? AND tile_scale=?""",
-            (zoom_level, row, scale)).fetchall()])
+        sql = "SELECT tile_column FROM tiles WHERE zoom_level=%d AND tile_row=%d" % (zoom_level, row)
+
+        if self.has_scale() and scale is not None:
+            sql += " AND tile_scale=%d " % (scale,)
+
+        return set([int(x[0]) for x in self.cur.execute(sql).fetchall()])
 
 
     def tiles_with_tile_id(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
@@ -326,22 +332,47 @@ class MBTilesSQLite(MBTilesDatabase):
 
         chunk = 10000
 
+        sql = "SELECT map.zoom_level, map.tile_column, map.tile_row, "
+
         if self.has_scale():
-            if min_timestamp > 0 and max_timestamp > 0:
-                tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=? and map.zoom_level<=? AND map.tile_scale=? AND map.updated_at>? AND map.updated_at<?) AND (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id)""",
-                    (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-            elif min_timestamp > 0:
-                tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=? and map.zoom_level<=? AND map.tile_scale=? AND map.updated_at>?) AND (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id)""",
-                    (min_zoom, max_zoom, scale, min_timestamp))
-            elif max_timestamp > 0:
-                tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=? and map.zoom_level<=? AND map.tile_scale=? AND map.updated_at<?) AND (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id)""",
-                    (min_zoom, max_zoom, scale, max_timestamp))
-            else:
-                tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=? and map.zoom_level<=? AND map.tile_scale=?) AND (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id)""",
-                    (min_zoom, max_zoom, scale))
+            sql +=  "map.tile_scale, "
+        elif scale is not None:
+            sql += "%d, " % (scale,)
         else:
-            tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, ?, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=? and map.zoom_level<=?) AND (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id)""",
-                (scale, min_zoom, max_zoom))
+            sql += "1, "
+
+        sql += "images.tile_data, images.tile_id FROM map, images WHERE "
+
+        inner_sql = ""
+
+        if min_zoom > 0:
+            inner_sql += " map.zoom_level>=%d " % (min_zoom,)
+        if max_zoom < 18:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            inner_sql += " map.zoom_level<=%d " % (max_zoom,)
+
+        if self.has_scale() and scale is not None:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " map.updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " map.updated_at<%d " % (max_timestamp,)
+
+        if len(inner_sql) > 0:
+            sql += " (%s) AND " % (inner_sql,)
+        sql += " (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id) "
+
+        logger.debug(sql)
+
+        tiles_cur.execute(sql)
 
         rows = tiles_cur.fetchmany(chunk)
         while rows:
@@ -357,22 +388,36 @@ class MBTilesSQLite(MBTilesDatabase):
 
         chunk = 10000
     
-        if self.is_compacted():
-            if min_timestamp > 0 and max_timestamp > 0:
-                tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>? AND updated_at<?""",
-                    (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-            elif min_timestamp > 0:
-                tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>?""",
-                    (min_zoom, max_zoom, scale, min_timestamp))
-            elif max_timestamp > 0:
-                tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at<?""",
-                    (min_zoom, max_zoom, scale, max_timestamp))
-            else:
-                tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?""",
-                    (min_zoom, max_zoom, scale))
+        sql = "SELECT zoom_level, tile_column, tile_row, "
+
+        if self.has_scale():
+            sql +=  "tile_scale, "
+        elif scale is not None:
+            sql += "%d, " % (scale,)
         else:
-            tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?""",
-                (min_zoom, max_zoom, scale))
+            sql += "1, "
+
+        sql += " tile_data FROM tiles WHERE "
+
+        if min_zoom > 0:
+            sql += " zoom_level>=%d AND " % (min_zoom,)
+        if max_zoom < 18:
+            sql += " zoom_level<=%d AND " % (max_zoom,)
+
+        if self.has_scale() and scale is not None:
+            sql += " tile_scale=%d AND " % (scale,)
+
+        if self.is_compacted():
+            if min_timestamp > 0:
+                sql += " updated_at>%d AND " % (min_timestamp,)
+            if max_timestamp > 0:
+                sql += " updated_at<%d AND " % (max_timestamp,)
+
+        sql += " 1 "
+
+        logger.debug(sql)
+
+        tiles_cur.execute(sql)
 
         rows = tiles_cur.fetchmany(chunk)
         while rows:
@@ -417,29 +462,30 @@ class MBTilesSQLite(MBTilesDatabase):
 
     def delete_tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
         if self.is_compacted():
-            if min_timestamp > 0 and max_timestamp > 0:
-                self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>? AND updated_at<?)""",
-                    (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-                self.cur.execute("""DELETE FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>? AND updated_at<?""",
-                    (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-            elif min_timestamp > 0:
-                self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>?)""",
-                    (min_zoom, max_zoom, scale, min_timestamp))
-                self.cur.execute("""DELETE FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>?""",
-                    (min_zoom, max_zoom, scale, min_timestamp))
-            elif max_timestamp > 0:
-                self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at<?)""",
-                    (min_zoom, max_zoom, scale, max_timestamp))
-                self.cur.execute("""DELETE FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at<?""",
-                    (min_zoom, max_zoom, scale, max_timestamp))
-            else:
-                self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?)""",
-                    (min_zoom, max_zoom, scale))
-                self.cur.execute("""DELETE FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?""",
-                    (min_zoom, max_zoom, scale))
+            sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+            sql_map = "DELETE FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+
+            if self.has_scale() and scale is not None:
+                sql_images += " AND tile_scale=%d " % (scale,)
+                sql_map += " AND tile_scale=%d " % (scale,)
+
+            if min_timestamp > 0:
+                sql_images += " AND updated_at>%d " % (min_timestamp,)
+                sql_map += " AND updated_at>%d " % (min_timestamp,)
+            if max_timestamp > 0:
+                sql_images += " AND updated_at<%d " (max_timestamp,)
+                sql_map += " AND updated_at<%d " % (max_timestamp,)
+
+            self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+            self.cur.execute(sql_map)
+
         else:
-            self.cur.execute("""DELETE FROM tiles WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?""",
-                (min_zoom, max_zoom, scale))
+            sql += "DELETE FROM tiles WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+
+            if self.has_scale() and scale is not None:
+                sql += " AND tile_scale=%d " % (scale,)
+
+            self.cur.execute(sql)
 
 
     def expire_tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
@@ -447,42 +493,52 @@ class MBTilesSQLite(MBTilesDatabase):
             self.delete_tiles(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
             return
 
-        if min_timestamp > 0 and max_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>? AND updated_at<?)""",
-                (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=? WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>? AND updated_at<?""",
-                (int(time.time()), min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-        elif min_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>?)""",
-                (min_zoom, max_zoom, scale, min_timestamp))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=? WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at>?""",
-                (int(time.time()), min_zoom, max_zoom, scale, min_timestamp))
-        elif max_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at<?)""",
-                (min_zoom, max_zoom, scale, max_timestamp))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=? WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=? AND updated_at<?""",
-                (int(time.time()), min_zoom, max_zoom, scale, max_timestamp))
-        else:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?)""",
-                (min_zoom, max_zoom, scale))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=? WHERE zoom_level>=? AND zoom_level<=? AND tile_scale=?""",
-                (int(time.time()), min_zoom, max_zoom, scale))
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+        sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level>=%d AND zoom_level<=%d " % (int(time.time()), min_zoom, max_zoom)
+
+        if self.has_scale() and scale is not None:
+            sql_images += " AND tile_scale=%d " % (scale,)
+            sql_map += " AND tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            sql_images += " AND updated_at>%d " % (min_timestamp,)
+            sql_map += " AND updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql_images += " AND updated_at<%d " % (max_timestamp,)
+            sql_map += " AND updated_at<%d " % (max_timestamp,)
+
+        self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+        self.cur.execute(sql_map)
 
 
     def expire_tile(self, tile_z, tile_x, tile_y, scale):
         if self.is_compacted():
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level=? AND tile_column=? AND tile_row=? AND tile_scale=?)""",
-                (tile_z, tile_x, tile_y, scale))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=? WHERE tile_scale=? AND zoom_level=? AND tile_column=? AND tile_row=? AND tile_scale=?""",
-                (int(time.time()), tile_z, tile_x, tile_y, scale))
+            sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y) 
+            sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (int(time.time()), tile_z, tile_x, tile_y)
+
+            if self.has_scale() and scale is not None:
+                sql_images += " AND tile_scale=%d " % (scale,)
+                sql_map += " AND tile_scale=%d " % (scale,)
+
+            self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+            self.cur.execute(sql_map)
+
         else:
-            self.cur.execute("""DELETE FROM tiles WHERE zoom_level=? AND tile_column=? AND tile_row=? AND tile_scale=?""",
-                (tile_z, tile_x, tile_y, scale))
+            sql = "DELETE FROM tiles WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y)
+
+            if self.has_scale() and scale is not None:
+                sql += " AND tile_scale=%d " % (scale,)
+
+            self.cur.execute(sql)
 
 
     def bounding_box_for_zoom_level(self, zoom_level, scale):
-        return self.cur.execute("""SELECT min(tile_column), max(tile_column), min(tile_row), max(tile_row) FROM tiles WHERE zoom_level = ? AND tile_scale = ?""",
-            [zoom_level, scale]).fetchone()
+        sql = "SELECT min(tile_column), max(tile_column), min(tile_row), max(tile_row) FROM tiles WHERE zoom_level=%d " % (zoom_level,)
+
+        if self.has_scale() and scale is not None:
+            sql += " AND tile_scale=%d " % (scale,)
+
+        return self.cur.execute(sql).fetchone()
 
 
     def delete_tile_with_id(self, tile_id):
@@ -501,15 +557,26 @@ class MBTilesSQLite(MBTilesDatabase):
 
     def insert_tile_to_map(self, zoom_level, tile_column, tile_row, tile_scale, tile_id, replace_existing=True):
         if replace_existing:
-            self.cur.execute("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""",
-                (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+            if self.has_scale():
+                self.cur.execute("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                    (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+            else:
+                self.cur.execute("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_id, updated_at) VALUES (?, ?, ?, ?, ?)""",
+                    (zoom_level, tile_column, tile_row, tile_id, int(time.time())))
         else:
-            self.cur.execute("""INSERT OR IGNORE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""",
-                (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+            if self.has_scale():
+                self.cur.execute("""INSERT OR IGNORE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                    (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+            else:
+                self.cur.execute("""INSERT OR IGNORE INTO map (zoom_level, tile_column, tile_row, tile_id, updated_at) VALUES (?, ?, ?, ?, ?)""",
+                    (zoom_level, tile_column, tile_row, tile_id, int(time.time())))
 
 
     def insert_tiles_to_map(self, tile_list):
-        self.cur.executemany("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""", tile_list)
+        if self.has_scale():
+            self.cur.executemany("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""", tile_list)
+        else:
+            self.cur.executemany("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_id, updated_at) VALUES (?, ?, ?, ?, ?)""", tile_list)
 
 
     def update_tile(self, old_tile_id, new_tile_id, tile_data):
@@ -671,23 +738,36 @@ class MBTilesPostgres(MBTilesDatabase):
 
 
     def zoom_levels(self, scale):
-        self.cur.execute("SELECT distinct(zoom_level) FROM tiles WHERE tile_scale=%s", (scale,))
+        sql = "SELECT distinct(zoom_level) FROM tiles "
+
+        if scale is not None:
+            sql += " WHERE tile_scale=%d " % (scale,)
+
+        self.cur.execute(sql)
         return [int(x[0]) for x in self.cur.fetchall()]
 
 
     def tiles_count(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
-        if min_timestamp > 0 and max_timestamp > 0:
-            self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s AND updated_at<%s AND tile_id IS NOT NULL""",
-                (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-        elif min_timestamp > 0:
-            self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s AND tile_id IS NOT NULL""",
-                (min_zoom, max_zoom, scale, min_timestamp))
-        elif max_timestamp > 0:
-            self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at<%s AND tile_id IS NOT NULL""",
-                (min_zoom, max_zoom, scale, max_timestamp))
-        else:
-            self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND tile_id IS NOT NULL""",
-                (min_zoom, max_zoom, scale))
+        sql = "SELECT count(zoom_level) FROM map WHERE "
+
+        if min_zoom > 0:
+            sql += " zoom_level>=%d AND " % (min_zoom,)
+        if max_zoom < 18:
+            sql += " zoom_level<=%d AND " % (max_zoom,)
+
+        if scale is not None:
+            sql += " tile_scale=%d AND " % (scale,)
+
+        if min_timestamp > 0:
+            sql += " updated_at>%d AND " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql += " updated_at<%d AND " % (max_timestamp,)
+
+        sql += " tile_id IS NOT NULL"
+
+        logger.debug(sql)
+
+        self.cur.execute(sql)
 
         return self.cur.fetchone()[0]
 
@@ -718,18 +798,38 @@ class MBTilesPostgres(MBTilesDatabase):
 
         tiles_cur = iter_con.cursor("tiles_with_tile_id_cursor")
 
-        if min_timestamp > 0 and max_timestamp > 0:
-            tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=%s and map.zoom_level<=%s AND map.tile_scale=%s AND map.updated_at>%s AND map.updated_at<%s) AND (map.tile_id IS NOT NULL) AND (images.tile_id = map.tile_id)""",
-                (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-        elif min_timestamp > 0:
-            tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=%s and map.zoom_level<=%s AND map.tile_scale=%s AND map.updated_at>%s) AND (map.tile_id IS NOT NULL) AND (images.tile_id = map.tile_id)""",
-                (min_zoom, max_zoom, scale, min_timestamp))
-        elif max_timestamp > 0:
-            tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=%s and map.zoom_level<=%s AND map.tile_scale=%s AND map.updated_at<%s) AND (map.tile_id IS NOT NULL) AND (images.tile_id = map.tile_id)""",
-                (min_zoom, max_zoom, scale, max_timestamp))
-        else:
-            tiles_cur.execute("""SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE (map.zoom_level>=%s and map.zoom_level<=%s AND map.tile_scale=%s) AND (map.tile_id IS NOT NULL) AND (images.tile_id = map.tile_id)""",
-                (min_zoom, max_zoom, scale))
+        sql = "SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE "
+
+        inner_sql = ""
+
+        if min_zoom > 0:
+            inner_sql += " map.zoom_level>=%d " % (min_zoom,)
+        if max_zoom < 18:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            inner_sql += " map.zoom_level<=%d " % (max_zoom,)
+
+        if scale is not None:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " map.updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " map.updated_at<%d " % (max_timestamp,)
+
+        if len(inner_sql) > 0:
+            sql += " (%s) AND " % (inner_sql,)
+        sql += " (map.tile_id IS NOT NULL) AND (images.tile_id == map.tile_id) "
+
+        logger.debug(sql)
+
+        tiles_cur.execute(sql)
 
         t = tiles_cur.fetchone()
         while t:
@@ -746,18 +846,26 @@ class MBTilesPostgres(MBTilesDatabase):
 
         tiles_cur = iter_con.cursor("tiles_cursor")
     
-        if min_timestamp > 0 and max_timestamp > 0:
-            tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s AND updated_at<%s""",
-                (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-        elif min_timestamp > 0:
-            tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s""",
-                (min_zoom, max_zoom, scale, min_timestamp))
-        elif max_timestamp > 0:
-            tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at<%s""",
-                (min_zoom, max_zoom, scale, max_timestamp))
-        else:
-            tiles_cur.execute("""SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s""",
-                (min_zoom, max_zoom, scale))
+        sql = "SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE "
+
+        if min_zoom > 0:
+            sql += " zoom_level>=%d AND " % (min_zoom,)
+        if max_zoom < 18:
+            sql += " zoom_level<=%d AND " % (max_zoom,)
+
+        if scale is not None:
+            sql += " tile_scale=%d AND " % (scale,)
+
+        if min_timestamp > 0:
+            sql += " updated_at>%d AND " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql += " updated_at<%d AND " % (max_timestamp,)
+
+        sql += " 1 "
+
+        logger.debug(sql)
+
+        tiles_cur.execute(sql)
 
         t = tiles_cur.fetchone()
         while t:
@@ -802,61 +910,62 @@ class MBTilesPostgres(MBTilesDatabase):
 
 
     def delete_tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
-        if min_timestamp > 0 and max_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s AND updated_at<%s)""",
-                (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-            self.cur.execute("""DELETE FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s AND updated_at<%s""", 
-                (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-        elif min_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s)""",
-                (min_zoom, max_zoom, scale, min_timestamp))
-            self.cur.execute("""DELETE FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s""", 
-                (min_zoom, max_zoom, scale, min_timestamp))
-        elif max_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at<%s)""",
-                (min_zoom, max_zoom, scale, max_timestamp))
-            self.cur.execute("""DELETE FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at<%s""", 
-                (min_zoom, max_zoom, scale, max_timestamp))
-        else:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s)""",
-                (min_zoom, max_zoom, scale))
-            self.cur.execute("""DELETE FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s""", 
-                (min_zoom, max_zoom, scale))
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+        sql_map = "DELETE FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+
+        if scale is not None:
+            sql_images += " AND tile_scale=%d " % (scale,)
+            sql_map += " AND tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            sql_images += " AND updated_at>%d " % (min_timestamp,)
+            sql_map += " AND updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql_images += " AND updated_at<%d " (max_timestamp,)
+            sql_map += " AND updated_at<%d " % (max_timestamp,)
+
+        self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+        self.cur.execute(sql_map)
 
 
     def expire_tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
-        if min_timestamp > 0 and max_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s AND updated_at<%s)""",
-                (min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=%s WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s AND updated_at<%s""",
-                (int(time.time()), min_zoom, max_zoom, scale, min_timestamp, max_timestamp))
-        elif min_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s)""",
-                (min_zoom, max_zoom, scale, min_timestamp))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=%s WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at>%s""",
-                (int(time.time()), min_zoom, max_zoom, scale, min_timestamp))
-        elif max_timestamp > 0:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at<%s)""",
-                (min_zoom, max_zoom, scale, max_timestamp))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=%s WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s AND updated_at<%s""",
-                (int(time.time()), min_zoom, max_zoom, scale, max_timestamp))
-        else:
-            self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s)""",
-                (min_zoom, max_zoom, scale))
-            self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=%s WHERE zoom_level>=%s AND zoom_level<=%s AND tile_scale=%s""",
-                (int(time.time()), min_zoom, max_zoom, scale))
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+        sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level>=%d AND zoom_level<=%d " % (int(time.time()), min_zoom, max_zoom)
+
+        if scale is not None:
+            sql_images += " AND tile_scale=%d " % (scale,)
+            sql_map += " AND tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            sql_images += " AND updated_at>%d " % (min_timestamp,)
+            sql_map += " AND updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql_images += " AND updated_at<%d " % (max_timestamp,)
+            sql_map += " AND updated_at<%d " % (max_timestamp,)
+
+        self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+        self.cur.execute(sql_map)
 
 
     def expire_tile(self, tile_z, tile_x, tile_y, scale):
-        self.cur.execute("""DELETE FROM images WHERE tile_id IN (SELECT tile_id FROM map WHERE zoom_level=%s AND tile_column=%s AND tile_row=%s AND tile_scale=%s)""",
-            (tile_z, tile_x, tile_y, scale))
-        self.cur.execute("""UPDATE map SET tile_id=NULL, updated_at=%s WHERE zoom_level=%s AND tile_column=%s AND tile_row=%s AND tile_scale=%s""",
-            (int(time.time()), tile_z, tile_x, tile_y, scale))
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y) 
+        sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (int(time.time()), tile_z, tile_x, tile_y)
+
+        if scale is not None:
+            sql_images += " AND tile_scale=%d " % (scale,)
+            sql_map += " AND tile_scale=%d " % (scale,)
+
+        self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+        self.cur.execute(sql_map)
 
 
     def bounding_box_for_zoom_level(self, zoom_level, scale):
-        self.cur.execute("""SELECT min(tile_column), max(tile_column), min(tile_row), max(tile_row) FROM tiles WHERE zoom_level = %s AND tile_scale = %s""",
-            [zoom_level, scale])
+        sql = "SELECT min(tile_column), max(tile_column), min(tile_row), max(tile_row) FROM tiles WHERE zoom_level=%d " % (zoom_level,)
+
+        if scale is not None:
+            sql += " AND tile_scale=%d " % (scale,)
+
+        self.cur.execute(sql)
         return self.cur.fetchone()
 
 

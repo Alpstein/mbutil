@@ -54,7 +54,7 @@ def process_tiles(pool, tiles_to_process, con, count, total_tiles, start_time, p
 
 def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
 
-    scale         = kwargs.get('tile_scale', 1)
+    scale         = kwargs.get('tile_scale', None)
     zoom          = kwargs.get('zoom', -1)
     min_zoom      = kwargs.get('min_zoom', 0)
     max_zoom      = kwargs.get('max_zoom', 18)

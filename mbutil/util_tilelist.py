@@ -11,7 +11,7 @@ def mbtiles_tilelist(mbtiles_file, **kwargs):
     flip_tile_y = kwargs.get('flip_y', False)
     as_bboxes   = kwargs.get('as_bboxes', False)
 
-    scale     = kwargs.get('tile_scale', 1)
+    scale     = kwargs.get('tile_scale', None)
     zoom      = kwargs.get('zoom', -1)
     min_zoom  = kwargs.get('min_zoom', 0)
     max_zoom  = kwargs.get('max_zoom', 18)

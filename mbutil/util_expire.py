@@ -7,7 +7,7 @@ from util_convert import parse_and_convert_tile_bbox, parse_bbox, tiles_for_bbox
 
 def expire_mbtiles(mbtiles_file, **kwargs):
 
-    scale       = kwargs.get('tile_scale', 1)
+    scale       = kwargs.get('tile_scale', None)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)
@@ -42,7 +42,7 @@ def expire_mbtiles(mbtiles_file, **kwargs):
 
 def expire_tiles_bbox(mbtiles_file, **kwargs):
 
-    scale       = kwargs.get('tile_scale', 1)
+    scale       = kwargs.get('tile_scale', None)
     zoom        = kwargs.get('zoom', -1)
     min_zoom    = kwargs.get('min_zoom', 0)
     max_zoom    = kwargs.get('max_zoom', 18)
