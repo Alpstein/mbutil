@@ -1101,8 +1101,12 @@ class MBTilesMySQL(MBTilesDatabase):
             CREATE TABLE IF NOT EXISTS metadata (
             name VARCHAR(200),
             value TEXT )""")
-        self.cur.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS name ON metadata (name)""")
+
+        try:
+            self.cur.execute("""
+                CREATE UNIQUE INDEX metadata_name_index ON metadata (name)""")
+        except:
+            pass
 
         try:
             self.cur.execute("""
@@ -1119,15 +1123,21 @@ class MBTilesMySQL(MBTilesDatabase):
         except Exception, e:
             pass
 
-        self.cur.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS map_index ON map
-            (zoom_level, tile_column, tile_row, tile_scale)""")
-        self.cur.execute("""
-            CREATE UNIQUE INDEX IF NOT EXISTS images_id ON images (tile_id)""")
+        try:
+            self.cur.execute("""
+                CREATE UNIQUE INDEX map_index ON map
+                (zoom_level, tile_column, tile_row, tile_scale)""")
+        except:
+            pass
+        try:
+            self.cur.execute("""
+                CREATE UNIQUE INDEX images_id_index ON images (tile_id)""")
+        except:
+            pass
 
 
     def create_map_tile_index(self):
-        self.cur.execute("""CREATE INDEX IF NOT EXISTS map_tile_id_index ON map (tile_id)""")
+        self.cur.execute("""CREATE INDEX map_tile_id_index ON map (tile_id)""")
 
 
     def drop_map_tile_index(self):
@@ -1208,6 +1218,8 @@ class MBTilesMySQL(MBTilesDatabase):
         iter_con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
         tiles_cur = iter_con.cursor()
 
+        chunk = 10000
+
         sql = "SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE "
 
         inner_sql = ""
@@ -1241,10 +1253,11 @@ class MBTilesMySQL(MBTilesDatabase):
 
         tiles_cur.execute(sql)
 
-        t = tiles_cur.fetchone()
-        while t:
-            yield t
-            t = tiles_cur.fetchone()
+        rows = tiles_cur.fetchmany(chunk)
+        while rows:
+            for t in rows:
+                yield t
+            rows = tiles_cur.fetchmany(chunk)
 
         tiles_cur.close()
         iter_con.close()
@@ -1253,9 +1266,10 @@ class MBTilesMySQL(MBTilesDatabase):
     def tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
         # Second connection to the database, for the named cursor
         iter_con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
-
         tiles_cur = iter_con.cursor()
     
+        chunk = 10000
+
         sql = "SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE "
 
         if min_zoom > 0:
@@ -1277,10 +1291,11 @@ class MBTilesMySQL(MBTilesDatabase):
 
         tiles_cur.execute(sql)
 
-        t = tiles_cur.fetchone()
-        while t:
-            yield t
-            t = tiles_cur.fetchone()
+        rows = tiles_cur.fetchmany(chunk)
+        while rows:
+            for t in rows:
+                yield t
+            rows = tiles_cur.fetchmany(chunk)
 
         tiles_cur.close()
         iter_con.close()
