@@ -357,16 +357,16 @@ class MBTilesSQLite(MBTilesDatabase):
         if self.has_scale() and scale is not None:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " tile_scale=%d " % (scale,)
+            inner_sql += " tile_scale=%d " % (scale,)
 
         if min_timestamp > 0:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " map.updated_at>%d " % (min_timestamp,)
+            inner_sql += " map.updated_at>%d " % (min_timestamp,)
         if max_timestamp > 0:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " map.updated_at<%d " % (max_timestamp,)
+            inner_sql += " map.updated_at<%d " % (max_timestamp,)
 
         if len(inner_sql) > 0:
             sql += " (%s) AND " % (inner_sql,)
@@ -814,16 +814,16 @@ class MBTilesPostgres(MBTilesDatabase):
         if scale is not None:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " tile_scale=%d " % (scale,)
+            inner_sql += " tile_scale=%d " % (scale,)
 
         if min_timestamp > 0:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " map.updated_at>%d " % (min_timestamp,)
+            inner_sql += " map.updated_at>%d " % (min_timestamp,)
         if max_timestamp > 0:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " map.updated_at<%d " % (max_timestamp,)
+            inner_sql += " map.updated_at<%d " % (max_timestamp,)
 
         if len(inner_sql) > 0:
             sql += " (%s) AND " % (inner_sql,)
@@ -1222,16 +1222,16 @@ class MBTilesMySQL(MBTilesDatabase):
         if scale is not None:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " tile_scale=%d " % (scale,)
+            inner_sql += " tile_scale=%d " % (scale,)
 
         if min_timestamp > 0:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " map.updated_at>%d " % (min_timestamp,)
+            inner_sql += " map.updated_at>%d " % (min_timestamp,)
         if max_timestamp > 0:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
-            sql += " map.updated_at<%d " % (max_timestamp,)
+            inner_sql += " map.updated_at<%d " % (max_timestamp,)
 
         if len(inner_sql) > 0:
             sql += " (%s) AND " % (inner_sql,)
