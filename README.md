@@ -179,6 +179,7 @@ Python installation (requires easy_install)
 * Python `>= 2.6`
 * SQLite `>= 3.7.0`
 * psycopg2 `>= 2.4.6`
+* oursql `>= 0.9.3.1`
 
 ## Metadata
 

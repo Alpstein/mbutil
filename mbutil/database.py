@@ -1,4 +1,4 @@
-import psycopg2, sqlite3, uuid, sys, logging, time, os, json, zlib, hashlib, tempfile, math
+import psycopg2, sqlite3, oursql, uuid, sys, logging, time, os, json, zlib, hashlib, tempfile, math
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +11,8 @@ def database_connect(connect_string, auto_commit=False, journal_mode='wal', sync
         return MBTilesSQLite(connect_string, auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
     elif connect_string.find("dbname") >= 0 or connect_string.startswith("pg:"):
         return MBTilesPostgres(connect_string, auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
+    elif connect_string.startswith("my:"):
+        return MBTilesMySQL(connect_string, auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
     else:
         logger.error("Unknown database connection string")
         sys.exit(1)
@@ -1034,4 +1036,394 @@ class MBTilesPostgres(MBTilesDatabase):
         except:
             self.cur.execute("""UPDATE metadata SET value=%s WHERE name=%s""",
                 (value, key))
+
+
+
+class MBTilesMySQL(MBTilesDatabase):
+
+
+    def __init__(self, connect_string, auto_commit=False, journal_mode='wal', synchronous_off=False, exclusive_lock=False, check_if_exists=False):
+        try:
+
+            if connect_string.startswith("my:"):
+                if os.path.isfile("/etc/mb-util.conf"):
+                    config = {}
+
+                    with open("/etc/mb-util.conf") as f:
+                        for line in f:
+                            try:
+                                for (key, value) in (line.strip().split(":", 1),):
+                                    config[key.strip()] = value.strip()
+                            except:
+                                pass
+
+                    key = connect_string.split(':')[1]
+                    if len(key):
+                        if config.get(key, None) != None:
+                            connect_string = config.get(key, connect_string)
+                        else:
+                            logger.error("Could not find '%s' in /etc/mb-util.conf." % (key))
+                            sys.exit(1)
+
+            self.connect_options = dict(option.split("=") for option in connect_string.split(" "))
+            self.connect_string = "dbname=%s hostaddr=%s" % (self.connect_options['dbname'], self.connect_options['hostaddr'])
+
+            self.con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
+            self.cur = self.con.cursor()
+
+            if check_if_exists:
+                self.cur.execute("SHOW TABLES LIKE 'map'")
+                if len(self.cur.fetchall()) == 0:
+                    self.close()
+                    sys.stderr.write("The mbtiles database and tables must exist for database '%s'.\n" % (self.connect_options['dbname'],))
+                    sys.exit(1)
+
+        except Exception, e:
+            logger.error("Could not connect to the MySQL database '%s':" % (connect_string))
+            logger.error(e)
+            sys.exit(1)
+
+
+    def mbtiles_setup(self):
+        self.cur.execute("""
+            CREATE TABLE IF NOT EXISTS images (
+            tile_id CHAR(40),
+            tile_data MEDIUMBLOB )""")
+        self.cur.execute("""
+            CREATE TABLE IF NOT EXISTS map (
+            zoom_level TINYINT,
+            tile_column INTEGER,
+            tile_row INTEGER,
+            tile_scale TINYINT,
+            tile_id CHAR(40),
+            updated_at INTEGER )""")
+        self.cur.execute("""
+            CREATE TABLE IF NOT EXISTS metadata (
+            name VARCHAR(200),
+            value TEXT )""")
+        self.cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS name ON metadata (name)""")
+
+        try:
+            self.cur.execute("""
+                CREATE VIEW tiles AS
+                SELECT map.zoom_level AS zoom_level,
+                map.tile_column AS tile_column,
+                map.tile_row AS tile_row,
+                map.tile_scale AS tile_scale,
+                images.tile_data AS tile_data,
+                map.updated_at AS updated_at
+                FROM map
+                JOIN images
+                ON map.tile_id IS NOT NULL AND images.tile_id = map.tile_id""")
+        except Exception, e:
+            pass
+
+        self.cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS map_index ON map
+            (zoom_level, tile_column, tile_row, tile_scale)""")
+        self.cur.execute("""
+            CREATE UNIQUE INDEX IF NOT EXISTS images_id ON images (tile_id)""")
+
+
+    def create_map_tile_index(self):
+        self.cur.execute("""CREATE INDEX IF NOT EXISTS map_tile_id_index ON map (tile_id)""")
+
+
+    def drop_map_tile_index(self):
+        self.cur.execute("""DROP INDEX map_tile_id_index""")
+
+
+    def max_timestamp(self):
+        self.cur.execute("SELECT max(updated_at) FROM map")
+        result = self.cur.fetchall()
+
+        if not result or len(result) == 0:
+            return 0
+
+        return result[0]
+
+
+    def zoom_levels(self, scale):
+        sql = "SELECT distinct(zoom_level) FROM tiles "
+
+        if scale is not None:
+            sql += " WHERE tile_scale=%d " % (scale,)
+
+        self.cur.execute(sql)
+        return [int(x[0]) for x in self.cur.fetchall()]
+
+
+    def tiles_count(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        sql = "SELECT count(zoom_level) FROM map WHERE "
+
+        if min_zoom > 0:
+            sql += " zoom_level>=%d AND " % (min_zoom,)
+        if max_zoom < 18:
+            sql += " zoom_level<=%d AND " % (max_zoom,)
+
+        if scale is not None:
+            sql += " tile_scale=%d AND " % (scale,)
+
+        if min_timestamp > 0:
+            sql += " updated_at>%d AND " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql += " updated_at<%d AND " % (max_timestamp,)
+
+        sql += " tile_id IS NOT NULL"
+
+        logger.debug(sql)
+
+        self.cur.execute(sql)
+
+        result = self.cur.fetchall()
+        if len(result) == 0:
+            return 0
+
+        return result[0][0]
+
+
+    def columns_and_rows_for_zoom_level(self, zoom_level, scale):
+        tiles_cur = self.con.cursor()
+
+        tiles_cur.execute("""SELECT tile_column, tile_row FROM map WHERE zoom_level = %s AND tile_scale = %s ORDER BY tile_column, tile_row""",
+            [zoom_level, scale])
+
+        t = tiles_cur.fetchone()
+        while t:
+            yield t
+            t = tiles_cur.fetchone()
+
+        tiles_cur.close()
+
+
+    def columns_for_zoom_level_and_row(self, zoom_level, row, scale):
+        self.cur.execute("""SELECT tile_column FROM tiles WHERE zoom_level = %s AND tile_row = %s AND tile_scale = %s""",
+            (zoom_level, row, scale))
+        return set([int(x[0]) for x in self.cur.fetchall()])
+
+
+    def tiles_with_tile_id(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        # Second connection to the database, for the named cursor
+        iter_con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
+        tiles_cur = iter_con.cursor()
+
+        sql = "SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE "
+
+        inner_sql = ""
+
+        if min_zoom > 0:
+            inner_sql += " map.zoom_level>=%d " % (min_zoom,)
+        if max_zoom < 18:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            inner_sql += " map.zoom_level<=%d " % (max_zoom,)
+
+        if scale is not None:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " map.updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            if len(inner_sql) > 0:
+                inner_sql += " AND "
+            sql += " map.updated_at<%d " % (max_timestamp,)
+
+        if len(inner_sql) > 0:
+            sql += " (%s) AND " % (inner_sql,)
+        sql += " (map.tile_id IS NOT NULL) AND (images.tile_id = map.tile_id) "
+
+        logger.debug(sql)
+
+        tiles_cur.execute(sql)
+
+        t = tiles_cur.fetchone()
+        while t:
+            yield t
+            t = tiles_cur.fetchone()
+
+        tiles_cur.close()
+        iter_con.close()
+
+
+    def tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        # Second connection to the database, for the named cursor
+        iter_con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
+
+        tiles_cur = iter_con.cursor()
+    
+        sql = "SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE "
+
+        if min_zoom > 0:
+            sql += " zoom_level>=%d AND " % (min_zoom,)
+        if max_zoom < 18:
+            sql += " zoom_level<=%d AND " % (max_zoom,)
+
+        if scale is not None:
+            sql += " tile_scale=%d AND " % (scale,)
+
+        if min_timestamp > 0:
+            sql += " updated_at>%d AND " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql += " updated_at<%d AND " % (max_timestamp,)
+
+        sql += " 1 "
+
+        logger.debug(sql)
+
+        tiles_cur.execute(sql)
+
+        t = tiles_cur.fetchone()
+        while t:
+            yield t
+            t = tiles_cur.fetchone()
+
+        tiles_cur.close()
+        iter_con.close()
+
+
+    def updates(self, min_zoom, max_zoom, min_timestamp, max_timestamp):
+        tiles_cur = self.con.cursor()
+
+        chunk = 10000
+
+        tiles_cur.execute("""
+            SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id
+            FROM map, images
+            WHERE (map.zoom_level>=? and map.zoom_level<=? AND map.updated_at>? AND map.updated_at<?) AND (images.tile_id == map.tile_id)
+            UNION
+            SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, NULL, NULL
+            FROM map
+            WHERE (map.zoom_level>=? and map.zoom_level<=? AND map.updated_at>? AND map.updated_at<?) AND (map.tile_id IS NULL)
+            """,
+            (min_zoom, max_zoom, min_timestamp, max_timestamp, min_zoom, max_zoom, min_timestamp, max_timestamp))
+
+        rows = tiles_cur.fetchmany(chunk)
+        while rows:
+            for t in rows:
+                yield t
+            rows = tiles_cur.fetchmany(chunk)
+
+        tiles_cur.close()
+
+
+    def updates_count(self, min_zoom, max_zoom, min_timestamp, max_timestamp):
+        total_tiles = self.cur.execute("""SELECT count(zoom_level) FROM map WHERE zoom_level>=? AND zoom_level<=? AND updated_at>? AND updated_at<?""",
+            (min_zoom, max_zoom, min_timestamp, max_timestamp)).fetchall()[0][0]
+
+        return total_tiles
+
+
+    def delete_tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+        sql_map = "DELETE FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+
+        if scale is not None:
+            sql_images += " AND tile_scale=%d " % (scale,)
+            sql_map += " AND tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            sql_images += " AND updated_at>%d " % (min_timestamp,)
+            sql_map += " AND updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql_images += " AND updated_at<%d " (max_timestamp,)
+            sql_map += " AND updated_at<%d " % (max_timestamp,)
+
+        self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+        self.cur.execute(sql_map)
+
+
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
+        sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level>=%d AND zoom_level<=%d " % (int(time.time()), min_zoom, max_zoom)
+
+        if scale is not None:
+            sql_images += " AND tile_scale=%d " % (scale,)
+            sql_map += " AND tile_scale=%d " % (scale,)
+
+        if min_timestamp > 0:
+            sql_images += " AND updated_at>%d " % (min_timestamp,)
+            sql_map += " AND updated_at>%d " % (min_timestamp,)
+        if max_timestamp > 0:
+            sql_images += " AND updated_at<%d " % (max_timestamp,)
+            sql_map += " AND updated_at<%d " % (max_timestamp,)
+
+        self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+        self.cur.execute(sql_map)
+
+
+    def expire_tile(self, tile_z, tile_x, tile_y, scale):
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y) 
+        sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (int(time.time()), tile_z, tile_x, tile_y)
+
+        if scale is not None:
+            sql_images += " AND tile_scale=%d " % (scale,)
+            sql_map += " AND tile_scale=%d " % (scale,)
+
+        self.cur.execute("DELETE FROM images WHERE tile_id IN (%s)" % (sql_images,))
+        self.cur.execute(sql_map)
+
+
+    def bounding_box_for_zoom_level(self, zoom_level, scale):
+        sql = "SELECT min(tile_column), max(tile_column), min(tile_row), max(tile_row) FROM tiles WHERE zoom_level=%d " % (zoom_level,)
+
+        if scale is not None:
+            sql += " AND tile_scale=%d " % (scale,)
+
+        self.cur.execute(sql)
+        return self.cur.fetchall()[0]
+
+
+    def delete_tile_with_id(self, tile_id):
+        self.cur.execute("""DELETE FROM map WHERE tile_id=?""", (tile_id, ));
+        self.cur.execute("""DELETE FROM images WHERE tile_id=?""", (tile_id, ))
+
+
+    def insert_tile_to_images(self, tile_id, tile_data):
+        self.cur.execute("""INSERT IGNORE INTO images (tile_id, tile_data) VALUES (?, ?)""",
+            (tile_id, buffer(tile_data)))
+
+
+    def insert_tiles_to_images(self, tile_list):
+        self.cur.executemany("""INSERT IGNORE INTO images (tile_id, tile_data) VALUES (?, ?)""", [(t[0], buffer(t[1])) for t in tile_list])
+
+
+    def insert_tile_to_map(self, zoom_level, tile_column, tile_row, tile_scale, tile_id, replace_existing=True):
+        if replace_existing:
+            self.cur.execute("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+        else:
+            self.cur.execute("""INSERT IGNORE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""",
+                (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+
+
+    def insert_tiles_to_map(self, tile_list):
+        self.cur.executemany("""REPLACE INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (?, ?, ?, ?, ?, ?)""", tile_list)
+
+
+    def update_tile(self, old_tile_id, new_tile_id, tile_data):
+        self.cur.execute("""INSERT OR IGNORE INTO images (tile_id, tile_data) VALUES (?, ?)""",
+            (new_tile_id, sqlite3.Binary(tile_data)))
+        self.cur.execute("""UPDATE map SET tile_id=?, updated_at=? WHERE tile_id=?""",
+            (new_tile_id, int(time.time()), old_tile_id))
+
+        if old_tile_id != new_tile_id:
+            self.cur.execute("""DELETE FROM images WHERE tile_id=?""",
+                [old_tile_id])
+
+
+    def metadata(self):
+        try:
+            self.cur.execute('SELECT name, value FROM metadata')
+            return dict(self.cur.fetchall())
+        except Exception, e:
+            return None
+
+
+    def update_metadata(self, key, value):
+        self.cur.execute('REPLACE INTO metadata (name, value) VALUES (?, ?)',
+            (key, value))
 
