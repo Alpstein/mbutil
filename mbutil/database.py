@@ -719,6 +719,16 @@ class MBTilesPostgres(MBTilesDatabase):
                 LANGUAGE plpgsql""")
 
 
+    def has_scale(self):
+        if self.database_has_scale == None:
+            try:
+                self.cur.execute("SELECT tile_scale FROM map LIMIT 1")
+                self.database_has_scale = True
+            except Exception, e:
+                self.database_has_scale = False
+        return self.database_has_scale
+
+
     def create_map_tile_index(self):
         self.cur.execute("SELECT count(*) FROM pg_class WHERE relname = 'map_tile_id_index'")
         if self.cur.fetchone()[0] == 0:
@@ -757,7 +767,7 @@ class MBTilesPostgres(MBTilesDatabase):
         if max_zoom < 18:
             sql += " zoom_level<=%d AND " % (max_zoom,)
 
-        if scale is not None:
+        if self.has_scale() and scale is not None:
             sql += " tile_scale=%d AND " % (scale,)
 
         if min_timestamp > 0:
@@ -777,8 +787,12 @@ class MBTilesPostgres(MBTilesDatabase):
     def columns_and_rows_for_zoom_level(self, zoom_level, scale):
         tiles_cur = self.con.cursor()
 
-        tiles_cur.execute("""SELECT tile_column, tile_row FROM map WHERE zoom_level = %s AND tile_scale = %s ORDER BY tile_column, tile_row""",
-            [zoom_level, scale])
+        sql = "SELECT tile_column, tile_row FROM map WHERE zoom_level=%d " % (zoom_level,)
+
+        if self.has_scale() and scale is not None:
+            sql += " AND tile_scale=%d " % (scale,)
+
+        tiles = tiles_cur.execute(sql)
 
         t = tiles_cur.fetchone()
         while t:
@@ -789,8 +803,13 @@ class MBTilesPostgres(MBTilesDatabase):
 
 
     def columns_for_zoom_level_and_row(self, zoom_level, row, scale):
-        self.cur.execute("""SELECT tile_column FROM tiles WHERE zoom_level = %s AND tile_row = %s AND tile_scale = %s""",
-            (zoom_level, row, scale))
+        sql = "SELECT tile_column FROM tiles WHERE zoom_level=%d AND tile_row=%d" % (zoom_level, row)
+
+        if self.has_scale() and scale is not None:
+            sql += " AND tile_scale=%d " % (scale,)
+
+        self.cur.execute(sql)
+
         return set([int(x[0]) for x in self.cur.fetchall()])
 
 
@@ -800,7 +819,16 @@ class MBTilesPostgres(MBTilesDatabase):
 
         tiles_cur = iter_con.cursor("tiles_with_tile_id_cursor")
 
-        sql = "SELECT map.zoom_level, map.tile_column, map.tile_row, map.tile_scale, images.tile_data, images.tile_id FROM map, images WHERE "
+        sql = "SELECT map.zoom_level, map.tile_column, map.tile_row, "
+
+        if self.has_scale():
+            sql +=  "map.tile_scale, "
+        elif scale is not None:
+            sql += "%d, " % (scale,)
+        else:
+            sql += "1, "
+
+        sql += "images.tile_data, images.tile_id FROM map, images WHERE "
 
         inner_sql = ""
 
@@ -811,7 +839,7 @@ class MBTilesPostgres(MBTilesDatabase):
                 inner_sql += " AND "
             inner_sql += " map.zoom_level<=%d " % (max_zoom,)
 
-        if scale is not None:
+        if self.has_scale() and scale is not None:
             if len(inner_sql) > 0:
                 inner_sql += " AND "
             inner_sql += " tile_scale=%d " % (scale,)
@@ -848,14 +876,23 @@ class MBTilesPostgres(MBTilesDatabase):
 
         tiles_cur = iter_con.cursor("tiles_cursor")
     
-        sql = "SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE "
+        sql = "SELECT zoom_level, tile_column, tile_row, "
+
+        if self.has_scale():
+            sql +=  "tile_scale, "
+        elif scale is not None:
+            sql += "%d, " % (scale,)
+        else:
+            sql += "1, "
+
+        sql += " tile_data FROM tiles WHERE "
 
         if min_zoom > 0:
             sql += " zoom_level>=%d AND " % (min_zoom,)
         if max_zoom < 18:
             sql += " zoom_level<=%d AND " % (max_zoom,)
 
-        if scale is not None:
+        if self.has_scale() and scale is not None:
             sql += " tile_scale=%d AND " % (scale,)
 
         if min_timestamp > 0:
@@ -915,7 +952,7 @@ class MBTilesPostgres(MBTilesDatabase):
         sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
         sql_map = "DELETE FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
 
-        if scale is not None:
+        if self.has_scale() and scale is not None:
             sql_images += " AND tile_scale=%d " % (scale,)
             sql_map += " AND tile_scale=%d " % (scale,)
 
@@ -934,7 +971,7 @@ class MBTilesPostgres(MBTilesDatabase):
         sql_images = "SELECT tile_id FROM map WHERE zoom_level>=%d AND zoom_level<=%d " % (min_zoom, max_zoom)
         sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level>=%d AND zoom_level<=%d " % (int(time.time()), min_zoom, max_zoom)
 
-        if scale is not None:
+        if self.has_scale() and scale is not None:
             sql_images += " AND tile_scale=%d " % (scale,)
             sql_map += " AND tile_scale=%d " % (scale,)
 
@@ -953,7 +990,7 @@ class MBTilesPostgres(MBTilesDatabase):
         sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y) 
         sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (int(time.time()), tile_z, tile_x, tile_y)
 
-        if scale is not None:
+        if self.has_scale() and scale is not None:
             sql_images += " AND tile_scale=%d " % (scale,)
             sql_map += " AND tile_scale=%d " % (scale,)
 
@@ -964,7 +1001,7 @@ class MBTilesPostgres(MBTilesDatabase):
     def bounding_box_for_zoom_level(self, zoom_level, scale):
         sql = "SELECT min(tile_column), max(tile_column), min(tile_row), max(tile_row) FROM tiles WHERE zoom_level=%d " % (zoom_level,)
 
-        if scale is not None:
+        if self.has_scale() and scale is not None:
             sql += " AND tile_scale=%d " % (scale,)
 
         self.cur.execute(sql)
@@ -991,12 +1028,20 @@ class MBTilesPostgres(MBTilesDatabase):
 
     def insert_tile_to_map(self, zoom_level, tile_column, tile_row, tile_scale, tile_id, replace_existing=True):
         if replace_existing:
-            self.cur.execute("""SELECT update_map_proc(%s, %s, %s, %s::smallint, %s::varchar, %s)""",
-                (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+            if self.has_scale():
+                self.cur.execute("""SELECT update_map_proc(%s, %s, %s, %s::smallint, %s::varchar, %s)""",
+                    (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+            else:
+                self.cur.execute("""SELECT update_map_proc(%s, %s, %s, 1::smallint, %s::varchar, %s)""",
+                    (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
         else:
             try:
-                self.cur.execute("""INSERT INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (%s, %s, %s, %s, %s, %s)""",
-                    (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+                if self.has_scale():
+                    self.cur.execute("""INSERT INTO map (zoom_level, tile_column, tile_row, tile_scale, tile_id, updated_at) VALUES (%s, %s, %s, %s, %s, %s)""",
+                        (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+                else:
+                    self.cur.execute("""INSERT INTO map (zoom_level, tile_column, tile_row, tile_id, updated_at) VALUES (%s, %s, %s, %s, %s)""",
+                        (zoom_level, tile_column, tile_row, tile_id, int(time.time())))
             except:
                 pass
 
