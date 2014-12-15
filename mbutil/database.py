@@ -608,6 +608,8 @@ class MBTilesSQLite(MBTilesDatabase):
 class MBTilesPostgres(MBTilesDatabase):
 
     def __init__(self, connect_string, auto_commit=False, journal_mode='wal', synchronous_off=False, exclusive_lock=False, check_if_exists=False):
+        self.database_has_scale = None
+
         try:
 
             if connect_string.startswith("pg:"):
@@ -1115,6 +1117,7 @@ class MBTilesMySQL(MBTilesDatabase):
 
             self.con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
             self.cur = self.con.cursor()
+            self.cur.execute("SET autocommit = 0")
 
             if check_if_exists:
                 self.cur.execute("SHOW TABLES LIKE 'map'")
@@ -1240,6 +1243,7 @@ class MBTilesMySQL(MBTilesDatabase):
 
     def columns_and_rows_for_zoom_level(self, zoom_level, scale):
         tiles_cur = self.con.cursor()
+        tiles_cur.execute("SET autocommit = 0")
 
         tiles_cur.execute("""SELECT tile_column, tile_row FROM map WHERE zoom_level = %s AND tile_scale = %s ORDER BY tile_column, tile_row""",
             [zoom_level, scale])
@@ -1262,6 +1266,7 @@ class MBTilesMySQL(MBTilesDatabase):
         # Second connection to the database, for the named cursor
         iter_con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
         tiles_cur = iter_con.cursor()
+        tiles_cur.execute("SET autocommit = 0")
 
         chunk = 10000
 
@@ -1312,6 +1317,7 @@ class MBTilesMySQL(MBTilesDatabase):
         # Second connection to the database, for the named cursor
         iter_con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
         tiles_cur = iter_con.cursor()
+        tiles_cur.execute("SET autocommit = 0")
     
         chunk = 10000
 
@@ -1348,6 +1354,7 @@ class MBTilesMySQL(MBTilesDatabase):
 
     def updates(self, min_zoom, max_zoom, min_timestamp, max_timestamp):
         tiles_cur = self.con.cursor()
+        tiles_cur.execute("SET autocommit = 0")
 
         chunk = 10000
 
