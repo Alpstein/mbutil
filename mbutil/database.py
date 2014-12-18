@@ -9,7 +9,7 @@ def database_connect(connect_string, auto_commit=False, journal_mode='wal', sync
 
     if connect_string.endswith(".mbtiles"):
         return MBTilesSQLite(connect_string, auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
-    elif connect_string.find("dbname") >= 0 or connect_string.find("driver=postgres") >= 0 or connect_string.startswith("pg:"):
+    elif connect_string.find("driver=postgres") >= 0 or connect_string.startswith("pg:"):
         return MBTilesPostgres(connect_string.replace("driver=postgres", ""), auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
     elif connect_string.find("driver=mysql") >= 0 or connect_string.startswith("my:"):
         return MBTilesMySQL(connect_string.replace("driver=mysql", ""), auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
@@ -1112,7 +1112,7 @@ class MBTilesMySQL(MBTilesDatabase):
                             logger.error("Could not find '%s' in /etc/mb-util.conf." % (key))
                             sys.exit(1)
 
-            self.connect_options = dict(option.split("=") for option in connect_string.split(" "))
+            self.connect_options = dict(option.split("=") for option in connect_string.strip().split(" "))
             self.connect_string = "dbname=%s hostaddr=%s" % (self.connect_options['dbname'], self.connect_options['hostaddr'])
 
             self.con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
