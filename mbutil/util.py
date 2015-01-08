@@ -50,8 +50,12 @@ def mbtiles_create(connect_string, **kwargs):
 def prettify_connect_string(connect_string):
     if connect_string.endswith(".mbtiles"):
         return "mbtiles:'%s'" % (os.path.basename(connect_string))
-    elif connect_string.find("dbname") >= 0:
+    elif connect_string.find("driver=postgres") >= 0 or connect_string.startswith("pg:"):
         return "postgres:'%s'" % (re.search('dbname=\'?([^\s\']+)\'?', connect_string).group(1))
+    elif connect_string.find("driver=mysql") >= 0 or connect_string.startswith("my:"):
+        return "mysql:'%s'" % (re.search('dbname=\'?([^\s\']+)\'?', connect_string).group(1))
+    elif connect_string.find("driver=mongodb") >= 0 or connect_string.startswith("mongodb:"):
+        return connect_string
 
 
 def execute_commands_on_tile(command_list, image_format, tile_data, tmp_dir=None):

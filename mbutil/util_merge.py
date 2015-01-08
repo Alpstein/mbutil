@@ -90,11 +90,11 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
 
     con1.mbtiles_setup()
 
-    if not con1.is_compacted():
-        con1.close()
-        con2.close()
-        sys.stderr.write('To merge two mbtiles databases, the receiver must already be compacted\n')
-        sys.exit(1)
+    # if not con1.is_compacted():
+    #     sys.stderr.write('To merge two mbtiles databases, the receiver must already be compacted\n')
+    #     con1.close()
+    #     con2.close()
+    #     sys.exit(1)
 
     if not con2.is_compacted() and (min_timestamp != 0 or max_timestamp != 0):
         con1.close()
@@ -234,6 +234,7 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
 
         tmp_images_list = []
         tmp_row_list = []
+        tmp_tiles_list = []
 
         for t in con2.tiles_with_tile_id(min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
             tile_z = t[0]
@@ -246,11 +247,14 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
             if flip_tile_y:
                 tile_y = flip_y(tile_z, tile_y)
 
-            if tile_id not in known_tile_ids:
-                tmp_images_list.append( (tile_id, tile_data) )
-                known_tile_ids.add(tile_id)
+            if con1.is_compacted():
+                if tile_id not in known_tile_ids:
+                    tmp_images_list.append( (tile_id, tile_data) )
+                    known_tile_ids.add(tile_id)
 
-            tmp_row_list.append( (tile_z, tile_x, tile_y, tile_scale, tile_id, int(time.time())) )
+                tmp_row_list.append( (tile_z, tile_x, tile_y, tile_scale, tile_id, int(time.time())) )
+            else:
+                tmp_tiles_list.append( (tile_z, tile_x, tile_y, tile_scale, tile_data, int(time.time())) )
 
             count = count + 1
             if (count % 100) == 0:
@@ -267,6 +271,10 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
                 con1.insert_tiles_to_map(tmp_row_list)
                 tmp_row_list = []
 
+            if len(tmp_tiles_list) > 250:
+                con1.insert_tiles(tmp_tiles_list)
+                tmp_tiles_list = []
+
         # Push the remaining rows to the database
         if len(tmp_images_list) > 0:
             con1.insert_tiles_to_images(tmp_images_list)
@@ -274,10 +282,17 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
         if len(tmp_row_list) > 0:
             con1.insert_tiles_to_map(tmp_row_list)
 
+        if len(tmp_tiles_list) > 0:
+            con1.insert_tiles(tmp_tiles_list)
+
 
     # merge an uncompacted database (--merge)
     else:
         known_tile_ids = set()
+
+        tmp_images_list = []
+        tmp_row_list = []
+        tmp_tiles_list = []
 
         for t in con2.tiles(min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
             tile_z = t[0]
@@ -293,16 +308,18 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
             if kwargs.get('command_list'):
                 tile_data = execute_commands_on_tile(kwargs['command_list'], new_format, tile_data, tmp_dir)
 
-            m = hashlib.md5()
-            m.update(tile_data)
-            tile_id = m.hexdigest()
+            if con1.is_compacted():
+                m = hashlib.md5()
+                m.update(tile_data)
+                tile_id = m.hexdigest()
 
-            if tile_id not in known_tile_ids:
-                con1.insert_tile_to_images(tile_id, tile_data)
+                if tile_id not in known_tile_ids:
+                    tmp_images_list.append( (tile_id, tile_data) )
+                    known_tile_ids.add(tile_id)
 
-            con1.insert_tile_to_map(tile_z, tile_x, tile_y, tile_scale, tile_id)
-
-            known_tile_ids.add(tile_id)
+                tmp_row_list.append( (tile_z, tile_x, tile_y, tile_scale, tile_id, int(time.time())) )
+            else:
+                tmp_tiles_list.append( (tile_z, tile_x, tile_y, tile_scale, tile_data, int(time.time())) )
 
             count = count + 1
             if (count % 100) == 0:
@@ -311,6 +328,27 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
                     sys.stdout.write("\r%d tiles merged (%.1f%% @ %.1f tiles/sec)" % (count, (float(count) / float(total_tiles)) * 100.0, count / (time.time() - start_time)))
                     sys.stdout.flush()
 
+            if len(tmp_images_list) > 250:
+                con1.insert_tiles_to_images(tmp_images_list)
+                tmp_images_list = []
+
+            if len(tmp_row_list) > 250:
+                con1.insert_tiles_to_map(tmp_row_list)
+                tmp_row_list = []
+
+            if len(tmp_tiles_list) > 250:
+                con1.insert_tiles(tmp_tiles_list)
+                tmp_tiles_list = []
+
+        # Push the remaining rows to the database
+        if len(tmp_images_list) > 0:
+            con1.insert_tiles_to_images(tmp_images_list)
+
+        if len(tmp_row_list) > 0:
+            con1.insert_tiles_to_map(tmp_row_list)
+
+        if len(tmp_tiles_list) > 0:
+            con1.insert_tiles(tmp_tiles_list)
 
     if print_progress:
         sys.stdout.write('\n')

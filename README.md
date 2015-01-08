@@ -180,6 +180,7 @@ Python installation (requires easy_install)
 * SQLite `>= 3.7.0`
 * psycopg2 `>= 2.4.6`
 * oursql `>= 0.9.3.1`
+* PyMongo `>= 2.7.2`
 
 ## Metadata
 
