@@ -677,21 +677,36 @@ class MBTilesPostgres(MBTilesDatabase):
         if self.cur.fetchone()[0] == 0:
             self.cur.execute("""CREATE UNIQUE INDEX metadata_name_index ON metadata (name)""")
 
-        self.cur.execute("""
-            CREATE OR REPLACE VIEW tiles AS
-            SELECT map.zoom_level AS zoom_level,
-            map.tile_column AS tile_column,
-            map.tile_row AS tile_row,
-            map.tile_scale AS tile_scale,
-            images.tile_data AS tile_data,
-            map.updated_at AS updated_at
-            FROM map
-            JOIN images
-            ON map.tile_id IS NOT NULL AND images.tile_id = map.tile_id""")
+        if self.has_scale():
+            self.cur.execute("""
+                CREATE OR REPLACE VIEW tiles AS
+                SELECT map.zoom_level AS zoom_level,
+                map.tile_column AS tile_column,
+                map.tile_row AS tile_row,
+                map.tile_scale AS tile_scale,
+                images.tile_data AS tile_data,
+                map.updated_at AS updated_at
+                FROM map
+                JOIN images
+                ON map.tile_id IS NOT NULL AND images.tile_id = map.tile_id""")
+        else:
+            self.cur.execute("""
+                CREATE OR REPLACE VIEW tiles AS
+                SELECT map.zoom_level AS zoom_level,
+                map.tile_column AS tile_column,
+                map.tile_row AS tile_row,
+                images.tile_data AS tile_data,
+                map.updated_at AS updated_at
+                FROM map
+                JOIN images
+                ON map.tile_id IS NOT NULL AND images.tile_id = map.tile_id""")
 
         self.cur.execute("SELECT count(*) FROM pg_class WHERE relname = 'map_coordinate_index'")
         if self.cur.fetchone()[0] == 0:
-            self.cur.execute("""CREATE UNIQUE INDEX map_coordinate_index ON map (zoom_level, tile_column, tile_row, tile_scale)""")
+            if self.has_scale():
+                self.cur.execute("""CREATE UNIQUE INDEX map_coordinate_index ON map (zoom_level, tile_column, tile_row, tile_scale)""")
+            else:
+                self.cur.execute("""CREATE UNIQUE INDEX map_coordinate_index ON map (zoom_level, tile_column, tile_row)""")
 
         self.cur.execute("SELECT count(*) FROM pg_class WHERE relname = 'images_id_index'")
         if self.cur.fetchone()[0] == 0:
@@ -720,6 +735,27 @@ class MBTilesPostgres(MBTilesDatabase):
                 $$
                 LANGUAGE plpgsql""")
 
+        if not self.has_scale():
+            self.cur.execute("""
+                CREATE OR REPLACE FUNCTION update_map_proc(tile_z INTEGER, tile_x INTEGER, tile_y INTEGER, key VARCHAR,
+            updated_timestamp INTEGER) RETURNS VOID AS
+                $$
+                BEGIN
+                    LOOP
+                        UPDATE map SET tile_id = key, updated_at = updated_timestamp WHERE zoom_level = tile_z AND tile_column = tile_x and tile_row = tile_y;
+                        IF found THEN
+                            RETURN;
+                        END IF;
+                        BEGIN
+                            INSERT INTO map(zoom_level, tile_column, tile_row, tile_id, updated_at) VALUES (tile_z, tile_x, tile_y, key, updated_timestamp);
+                            RETURN;
+                        EXCEPTION WHEN unique_violation THEN
+                        END;
+                    END LOOP;
+                END;
+                $$
+                LANGUAGE plpgsql""")
+ 
 
     def has_scale(self):
         if self.database_has_scale == None:
@@ -1034,8 +1070,8 @@ class MBTilesPostgres(MBTilesDatabase):
                 self.cur.execute("""SELECT update_map_proc(%s, %s, %s, %s::smallint, %s::varchar, %s)""",
                     (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
             else:
-                self.cur.execute("""SELECT update_map_proc(%s, %s, %s, 1::smallint, %s::varchar, %s)""",
-                    (zoom_level, tile_column, tile_row, tile_scale, tile_id, int(time.time())))
+                self.cur.execute("""SELECT update_map_proc(%s, %s, %s, %s::varchar, %s)""",
+                    (zoom_level, tile_column, tile_row, tile_id, int(time.time())))
         else:
             try:
                 if self.has_scale():
@@ -1117,7 +1153,7 @@ class MBTilesMySQL(MBTilesDatabase):
 
             self.con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
             self.cur = self.con.cursor()
-            self.cur.execute("SET autocommit = 0")
+            self.cur.execute("SET autocommit = 1")
 
             if check_if_exists:
                 self.cur.execute("SHOW TABLES LIKE 'map'")
