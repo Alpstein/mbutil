@@ -30,7 +30,6 @@ def mbtiles_to_disk(mbtiles_file, directory_path, **kwargs):
     if zoom >= 0:
         min_zoom = max_zoom = zoom
 
-
     con = mbtiles_connect(mbtiles_file, auto_commit, journal_mode, synchronous_off, False, True)
 
 
@@ -42,7 +41,6 @@ def mbtiles_to_disk(mbtiles_file, directory_path, **kwargs):
         zoom_level_string = "zoom levels %d -> %d" % (min_zoom, max_zoom)
 
     logger.info("Exporting %s --> path:'%s' (%s)" % (prettify_connect_string(con.connect_string), directory_path, zoom_level_string))
-
 
     if not os.path.isdir(directory_path):
         os.mkdir(directory_path)

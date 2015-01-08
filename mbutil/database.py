@@ -1698,7 +1698,7 @@ class MBTilesMongoDB(MBTilesDatabase):
             tile_data = bson.binary.Binary(t[4])
             timestamp = t[5]
 
-            tile_id = "%d/%d/%d/%d" % (tile_z, tile_x, tile_y, tile_scale)
+            tile_id = "%s/%s/%s/%s" % (tile_z, tile_x, tile_y, tile_scale)
 
             bulk.find({"_id" : tile_id}).upsert().update( { "$set" : {"_id" : tile_id, "z" : tile_z, "t" : timestamp, "d" : tile_data}})
 

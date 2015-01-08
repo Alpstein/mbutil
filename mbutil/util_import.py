@@ -31,10 +31,10 @@ def disk_to_mbtiles(directory_path, mbtiles_file, **kwargs):
 
     con.mbtiles_setup()
 
-    if not con.is_compacted():
-        con.close()
-        logger.info("The mbtiles database must be compacted, exiting...")
-        return
+    # if not con.is_compacted():
+    #     con.close()
+    #     logger.info("The mbtiles database must be compacted, exiting...")
+    #     return
 
     con.mbtiles_setup()
 
@@ -58,16 +58,17 @@ def disk_to_mbtiles(directory_path, mbtiles_file, **kwargs):
         # Check that the old and new image formats are the same
         receiving_metadata = con.metadata()
 
-        if receiving_metadata != None:
+        if receiving_metadata != None and len(receiving_metadata) > 0:
             original_format = receiving_metadata.get('format')
 
             if original_format != None and image_format != original_format:
                 sys.stderr.write('The databases to merge must use the same image format (png or jpg)\n')
                 sys.exit(1)
-        else:
-            for name, value in metadata.items():
-                con.update_metadata(name, value)
-            logger.info('metadata from metadata.json restored')
+
+        for name, value in metadata.items():
+            con.update_metadata(name, value)
+
+        logger.info('metadata from metadata.json restored')
 
     except IOError:
         logger.warning('metadata.json not found')
@@ -80,6 +81,12 @@ def disk_to_mbtiles(directory_path, mbtiles_file, **kwargs):
         sys.stdout.write("0 tiles imported (0 tiles/sec)")
         sys.stdout.flush()
 
+
+    known_tile_ids = set()
+
+    tmp_images_list = []
+    tmp_row_list = []
+    tmp_tiles_list = []
 
     for r1, zs, ignore in os.walk(os.path.join(directory_path, "tiles")):
         for tile_z in zs:
@@ -103,12 +110,18 @@ def disk_to_mbtiles(directory_path, mbtiles_file, **kwargs):
                             if kwargs.get('command_list'):
                                 tile_data = execute_commands_on_tile(kwargs['command_list'], image_format, tile_data, tmp_dir)
 
-                            m = hashlib.md5()
-                            m.update(tile_data)
-                            tile_id = m.hexdigest()
+                            if con.is_compacted():
+                                m = hashlib.md5()
+                                m.update(tile_data)
+                                tile_id = m.hexdigest()
 
-                            con.insert_tile_to_images(tile_id, tile_data)
-                            con.insert_tile_to_map(tile_z, tile_x, tile_y, scale, tile_id)
+                                if tile_id not in known_tile_ids:
+                                    tmp_images_list.append( (tile_id, tile_data) )
+                                    known_tile_ids.add(tile_id)
+
+                                tmp_row_list.append( (tile_z, tile_x, tile_y, 1, tile_id, int(time.time())) )
+                            else:
+                                tmp_tiles_list.append( (tile_z, tile_x, tile_y, 1, tile_data, int(time.time())) )
 
                             count = count + 1
                             if (count % 100) == 0:
@@ -117,6 +130,28 @@ def disk_to_mbtiles(directory_path, mbtiles_file, **kwargs):
                                     sys.stdout.write("\r%d tiles imported (%.1f tiles/sec)" % (count, count / (time.time() - start_time)))
                                     sys.stdout.flush()
 
+                            if len(tmp_images_list) > 250:
+                                con.insert_tiles_to_images(tmp_images_list)
+                                tmp_images_list = []
+
+                            if len(tmp_row_list) > 250:
+                                con.insert_tiles_to_map(tmp_row_list)
+                                tmp_row_list = []
+
+                            if len(tmp_tiles_list) > 250:
+                                con.insert_tiles(tmp_tiles_list)
+                                tmp_tiles_list = []
+
+
+    # Push the remaining rows to the database
+    if len(tmp_images_list) > 0:
+        con.insert_tiles_to_images(tmp_images_list)
+
+    if len(tmp_row_list) > 0:
+        con.insert_tiles_to_map(tmp_row_list)
+
+    if len(tmp_tiles_list) > 0:
+        con.insert_tiles(tmp_tiles_list)
 
     if print_progress:
         sys.stdout.write('\n')
