@@ -1,4 +1,4 @@
-import psycopg2, sqlite3, oursql, uuid, sys, logging, time, os, json, zlib, hashlib, tempfile, math
+import psycopg2, sqlite3, oursql, pymongo, bson, uuid, sys, logging, time, os, json, zlib, hashlib, tempfile, math
 
 logger = logging.getLogger(__name__)
 
@@ -13,6 +13,8 @@ def database_connect(connect_string, auto_commit=False, journal_mode='wal', sync
         return MBTilesPostgres(connect_string.replace("driver=postgres", ""), auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
     elif connect_string.find("driver=mysql") >= 0 or connect_string.startswith("my:"):
         return MBTilesMySQL(connect_string.replace("driver=mysql", ""), auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
+    elif connect_string.find("driver=mongodb") >= 0 or connect_string.startswith("mongodb:"):
+        return MBTilesMongoDB(connect_string.replace("driver=mongodb", ""), auto_commit, journal_mode, synchronous_off, exclusive_lock, check_if_exists)
     else:
         logger.error("Unknown database connection string")
         sys.exit(1)
@@ -123,6 +125,13 @@ class MBTilesDatabase:
 
     # tile_list must be an array of (z, x, y, scale, tile_id, timestamp)
     def insert_tiles_to_map(self, tile_list):
+        raise Exception("Not implemented.")
+
+    def insert_tile(self, zoom_level, tile_column, tile_row, tile_scale, tile_data):
+        raise Exception("Not implemented.")
+
+    # tile_list must be an array of (z, x, y, scale, tile_data, timestamp)
+    def insert_tiles(self, tile_list):
         raise Exception("Not implemented.")
 
     def update_tile(self, old_tile_id, new_tile_id, tile_data):
@@ -1088,7 +1097,6 @@ class MBTilesPostgres(MBTilesDatabase):
 
 class MBTilesMySQL(MBTilesDatabase):
 
-
     def __init__(self, connect_string, auto_commit=False, journal_mode='wal', synchronous_off=False, exclusive_lock=False, check_if_exists=False):
         try:
 
@@ -1494,3 +1502,182 @@ class MBTilesMySQL(MBTilesDatabase):
         self.cur.execute('REPLACE INTO metadata (name, value) VALUES (?, ?)',
             (key, value))
 
+
+class MBTilesMongoDB(MBTilesDatabase):
+
+    def __init__(self, connect_string, auto_commit=False, journal_mode='wal', synchronous_off=False, exclusive_lock=False, check_if_exists=False):
+        try:
+
+            if connect_string.startswith("mongodb:"):
+                if os.path.isfile("/etc/mb-util.conf"):
+                    config = {}
+
+                    with open("/etc/mb-util.conf") as f:
+                        for line in f:
+                            try:
+                                for (key, value) in (line.strip().split(":", 1),):
+                                    config[key.strip()] = value.strip()
+                            except:
+                                pass
+
+                    key = connect_string.split(':')[1]
+                    if len(key):
+                        if config.get(key, None) != None:
+                            connect_string = config.get(key, connect_string)
+                        else:
+                            logger.error("Could not find '%s' in /etc/mb-util.conf." % (key))
+                            sys.exit(1)
+
+            self.connect_options = dict(option.split("=") for option in connect_string.strip().split(" "))
+            self.connect_string = "mongodb://%s/%s" % (self.connect_options['hostaddr'], self.connect_options['dbname'])
+
+            self.con = pymongo.mongo_client.MongoClient(self.connect_string)
+            self.cur = self.con[self.connect_options['dbname']]
+
+        except Exception, e:
+            logger.error("Could not connect to the MongoDB database '%s':" % (connect_string))
+            logger.error(e)
+            sys.exit(1)
+
+    def close(self):
+        self.con.close()
+
+    def is_compacted(self):
+        return False
+
+    def mbtiles_setup(self):
+        pass
+
+    def optimize_database(self, skip_analyze, skip_vacuum):
+        pass
+
+    def create_map_tile_index(self):
+        pass
+
+    def drop_map_tile_index(self):
+        pass
+
+    def max_timestamp(self):
+        return 0
+
+    def zoom_levels(self, scale):
+        return self.cur.tiles.distinct("z")
+
+    def tiles_count(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        query = {}
+
+        if min_zoom > 0 or max_zoom < 18:
+            z_query = {}
+            if min_zoom > 0:
+                z_query["$gte"] = min_zoom
+            if max_zoom < 18:
+                z_query["$lte"] = max_zoom
+            query["z"] = z_query
+
+        if scale is not None:
+            query["s"] = scale
+
+        if min_timestamp > 0 or max_timestamp > 0:
+            t_query = {}
+            if min_timestamp > 0:
+                t_query["$gt"] = min_timestamp
+            if max_timestamp > 0:
+                t_query["$lt"] = max_timestamp
+            query["t"] = t_query
+
+        if len(query):
+            return self.con.tiles.find(query).count()
+
+        return self.cur.tiles.count()
+
+    def columns_and_rows_for_zoom_level(self, zoom_level, scale):
+        raise("Not implemented")
+
+    def columns_for_zoom_level_and_row(self, zoom_level, row, scale):
+        raise("Not implemented")
+
+    def tiles_with_tile_id(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        return tiles(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
+
+    def tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        query = {}
+
+        if min_zoom > 0 or max_zoom < 18:
+            z_query = {}
+            if min_zoom > 0:
+                z_query["$gte"] = min_zoom
+            if max_zoom < 18:
+                z_query["$lte"] = max_zoom
+            query["z"] = z_query
+
+        if scale is not None:
+            query["s"] = scale
+
+        if min_timestamp > 0 or max_timestamp > 0:
+            t_query = {}
+            if min_timestamp > 0:
+                t_query["$gt"] = min_timestamp
+            if max_timestamp > 0:
+                t_query["$lt"] = max_timestamp
+            query["t"] = t_query
+
+        cur = self.cur.tiles.find(query)
+
+        for t in cur:
+            tile_id = t["_id"]
+            tile_z, tile_x, tile_y, tile_scale = tile_id.split('/')
+
+            yield [ int(tile_z), int(tile_x), int(tile_y), int(tile_scale), t["d"]]
+
+    def updates(self, min_zoom, max_zoom, min_timestamp, max_timestamp):
+        raise("Not implemented")
+
+    def updates_count(self, min_zoom, max_zoom, min_timestamp, max_timestamp):
+        raise("Not implemented")
+
+    def delete_tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
+        raise("Not implemented")
+
+    def expire_tile(self, tile_z, tile_x, tile_y, scale):
+        raise("Not implemented")
+
+    def bounding_box_for_zoom_level(self, zoom_level, scale):
+        raise("Not implemented")
+
+    def delete_tile_with_id(self, tile_id):
+        raise("Not implemented")
+
+    def insert_tile(self, zoom_level, tile_column, tile_row, tile_scale, tile_data):
+        raise Exception("Not implemented.")
+
+    # tile_list must be an array of (z, x, y, scale, tile_data, timestamp)
+    def insert_tiles(self, tile_list):
+        bulk = self.cur.tiles.initialize_ordered_bulk_op()
+
+        for t in tile_list:
+            tile_z = t[0]
+            tile_x = t[1]
+            tile_y = t[2]
+            tile_scale = t[3]
+            tile_data = bson.binary.Binary(t[4])
+            timestamp = t[5]
+
+            tile_id = "%d/%d/%d/%d" % (tile_z, tile_x, tile_y, tile_scale)
+
+            bulk.find({"_id" : tile_id}).upsert().update( { "$set" : {"_id" : tile_id, "z" : tile_z, "t" : timestamp, "d" : tile_data}})
+
+        return bulk.execute()
+
+    def metadata(self):
+        try:
+            metadata = {}
+
+            for t in self.cur.metadata.find():
+                metadata[t["name"]] = t["value"]
+
+            return metadata
+        except Exception, e:
+            return None
+
+    def update_metadata(self, key, value):
+        self.cur.metadata.update({"name" : key}, {"name" : key, "value" : value}, True)
