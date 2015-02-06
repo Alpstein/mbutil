@@ -1565,7 +1565,7 @@ class MBTilesMongoDB(MBTilesDatabase):
                             sys.exit(1)
 
             self.connect_options = dict(option.split("=") for option in connect_string.strip().split(" "))
-            self.connect_string = "mongodb://%s:%s@%s/admin" % (self.connect_options['user'], self.connect_options['password'], self.connect_options.get('hostaddr', self.connect_options['host']))
+            self.connect_string = "mongodb://%s:%s@%s/admin" % (self.connect_options['user'], self.connect_options['password'], self.connect_options.get('hostaddr', self.connect_options.get('host', '127.0.0.1')))
 
             self.con = pymongo.mongo_client.MongoClient(self.connect_string)
             self.cur = self.con[self.connect_options['dbname']]
