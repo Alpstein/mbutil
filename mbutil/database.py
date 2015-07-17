@@ -18,7 +18,7 @@ def database_connect(connect_string, auto_commit=False, journal_mode='wal', sync
     else:
         logger.error("Unknown database connection string")
         sys.exit(1)
-  
+
 
 
 class MBTilesDatabase:
@@ -398,7 +398,7 @@ class MBTilesSQLite(MBTilesDatabase):
         tiles_cur = self.con.cursor()
 
         chunk = 10000
-    
+
         sql = "SELECT zoom_level, tile_column, tile_row, "
 
         if self.has_scale():
@@ -524,7 +524,7 @@ class MBTilesSQLite(MBTilesDatabase):
 
     def expire_tile(self, tile_z, tile_x, tile_y, scale):
         if self.is_compacted():
-            sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y) 
+            sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y)
             sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (int(time.time()), tile_z, tile_x, tile_y)
 
             if self.has_scale() and scale is not None:
@@ -764,7 +764,7 @@ class MBTilesPostgres(MBTilesDatabase):
                 END;
                 $$
                 LANGUAGE plpgsql""")
- 
+
 
     def has_scale(self):
         if self.database_has_scale == None:
@@ -922,7 +922,7 @@ class MBTilesPostgres(MBTilesDatabase):
         iter_con = psycopg2.connect(self.connect_string)
 
         tiles_cur = iter_con.cursor("tiles_cursor")
-    
+
         sql = "SELECT zoom_level, tile_column, tile_row, "
 
         if self.has_scale():
@@ -1034,7 +1034,7 @@ class MBTilesPostgres(MBTilesDatabase):
 
 
     def expire_tile(self, tile_z, tile_x, tile_y, scale):
-        sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y) 
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y)
         sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (int(time.time()), tile_z, tile_x, tile_y)
 
         if self.has_scale() and scale is not None:
@@ -1362,7 +1362,7 @@ class MBTilesMySQL(MBTilesDatabase):
         iter_con = oursql.connect(host=self.connect_options['hostaddr'], user=self.connect_options['user'], passwd=self.connect_options['password'], db=self.connect_options['dbname'], raise_on_warnings=False)
         tiles_cur = iter_con.cursor()
         tiles_cur.execute("SET autocommit = 0")
-    
+
         chunk = 10000
 
         sql = "SELECT zoom_level, tile_column, tile_row, tile_scale, tile_data FROM tiles WHERE "
@@ -1467,7 +1467,7 @@ class MBTilesMySQL(MBTilesDatabase):
 
 
     def expire_tile(self, tile_z, tile_x, tile_y, scale):
-        sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y) 
+        sql_images = "SELECT tile_id FROM map WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (tile_z, tile_x, tile_y)
         sql_map = "UPDATE map SET tile_id=NULL, updated_at=%d WHERE zoom_level=%d AND tile_column=%d AND tile_row=%d " % (int(time.time()), tile_z, tile_x, tile_y)
 
         if scale is not None:
@@ -1674,8 +1674,9 @@ class MBTilesMongoDB(MBTilesDatabase):
     def delete_tiles(self, min_zoom, max_zoom, min_timestamp, max_timestamp, scale):
         raise("Not implemented")
 
-    def expire_tile(self, tile_z, tile_x, tile_y, scale):
-        raise("Not implemented")
+    def expire_tile(self, tile_z, tile_x, tile_y, tile_scale):
+        tile_id = "%s/%s/%s/%s" % (tile_z, tile_x, tile_y, tile_scale)
+        self.cur.tiles.remove({ "_id" : tile_id })
 
     def bounding_box_for_zoom_level(self, zoom_level, scale):
         raise("Not implemented")
@@ -1700,7 +1701,7 @@ class MBTilesMongoDB(MBTilesDatabase):
 
             tile_id = "%s/%s/%s/%s" % (tile_z, tile_x, tile_y, tile_scale)
 
-            bulk.find({"_id" : tile_id}).upsert().update( { "$set" : {"_id" : tile_id, "z" : tile_z, "t" : timestamp, "d" : tile_data}})
+            bulk.find({ "_id" : tile_id }).upsert().update( { "$set" : {"_id" : tile_id, "z" : tile_z, "t" : timestamp, "d" : tile_data}})
 
         return bulk.execute()
 
