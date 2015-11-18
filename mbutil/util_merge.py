@@ -149,7 +149,7 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
 
     total_tiles = 0
 
-    if print_progress || debug:
+    if print_progress or debug:
         total_tiles = con2.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
 
         if total_tiles == 0:
