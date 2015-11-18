@@ -71,6 +71,7 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
     print_progress        = kwargs.get('progress', False)
     delete_vanished_tiles = kwargs.get('delete_vanished_tiles', False)
     flip_tile_y           = kwargs.get('flip_y', False)
+    debug                 = kwargs.get('debug', False)
 
     if tmp_dir and not os.path.isdir(tmp_dir):
         os.mkdir(tmp_dir)
@@ -146,19 +147,22 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
     start_time = time.time()
     chunk = 1000
 
-    total_tiles = con2.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
+    total_tiles = 0
 
-    if total_tiles == 0:
-        con1.close()
-        con2.close()
-        sys.stderr.write('No tiles to merge, exiting...\n')
-        return
+    if print_progress || debug:
+        total_tiles = con2.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
 
-    logger.debug("%d tiles to merge" % (total_tiles))
-    if print_progress:
-        sys.stdout.write("%d tiles to merge\n" % (total_tiles))
-        sys.stdout.write("0 tiles merged (0% @ 0 tiles/sec)")
-        sys.stdout.flush()
+        if total_tiles == 0:
+            con1.close()
+            con2.close()
+            sys.stderr.write('No tiles to merge, exiting...\n')
+            return
+
+        logger.debug("%d tiles to merge" % (total_tiles))
+        if print_progress:
+            sys.stdout.write("%d tiles to merge\n" % (total_tiles))
+            sys.stdout.write("0 tiles merged (0% @ 0 tiles/sec)")
+            sys.stdout.flush()
 
 
 
