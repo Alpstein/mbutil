@@ -147,7 +147,7 @@ def merge_mbtiles(mbtiles_file1, mbtiles_file2, **kwargs):
     start_time = time.time()
     chunk = 1000
 
-    total_tiles = 0
+    total_tiles = 1
 
     if print_progress or debug:
         total_tiles = con2.tiles_count(min_zoom, max_zoom, min_timestamp, max_timestamp, scale)
